@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import signal
+import threading
 import time
 
 from .config import Settings, load_settings
@@ -31,11 +32,11 @@ class Collector:
         self.series_map = dict(settings.series)
         self.active: list[str] = []
         self._next = {"discovery": 0.0, "snapshot": 0.0, "crypto": 0.0, "health": 0.0}
-        self._running = True
+        self._stop_event = threading.Event()
         self._health_ok = False
 
     def stop(self, *_):
-        self._running = False
+        self._stop_event.set()
 
     def paused(self) -> bool:
         return self.db.get_control("collector", "running") == "paused"
@@ -95,10 +96,10 @@ class Collector:
         self.db.log_event("collector", "info", "Collector started",
                           {"mode": self.s.trading_mode.value, "env": self.s.kalshi_env})
         failures = 0
-        while self._running:
+        while not self._stop_event.is_set():
             self.db.heartbeat("collector", {"paused": self.paused(), "active_markets": len(self.active)})
             if self.paused():
-                time.sleep(2)
+                self._stop_event.wait(2)
                 continue
             try:
                 self.step()
@@ -108,13 +109,13 @@ class Collector:
                 log.error("Kalshi API problem (%d in a row): %s", failures, exc)
                 if failures in (3, 10):
                     self.db.log_event("collector", "critical", f"Kalshi API failing: {exc}")
-                time.sleep(min(60, 2 ** failures))
+                self._stop_event.wait(min(60, 2 ** failures))
             except Exception as exc:  # keep running; systemd restarts us if we die anyway
                 failures += 1
                 log.exception("Collector error")
                 self.db.log_event("collector", "error", f"Unexpected error: {exc}")
-                time.sleep(min(60, 2 ** failures))
-            time.sleep(0.5)
+                self._stop_event.wait(min(60, 2 ** failures))
+            self._stop_event.wait(0.5)
         self.db.log_event("collector", "info", "Collector stopped")
 
 

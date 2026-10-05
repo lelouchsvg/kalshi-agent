@@ -36,7 +36,9 @@ kalshi_agent/
   dashboard/         FastAPI + single-page dashboard
   cli.py             ./kalshi status | markets | health | kill | ...
   db/schema.sql      all tables (SQLite now, Postgres-ready)
-deploy/              setup_vps.sh, systemd units, auto-update (test-gated), backups
+start.sh / stop.sh  local launcher: private Python in .runtime/, tests must pass, auto-restart
+Start/Stop Kalshi Agent.command   double-click wrappers for macOS
+deploy/              optional: VPS setup if you ever want it running 24/7 without the Mac
 docs/                Kalshi API notes, architecture decisions
 tests/
 ```
@@ -52,6 +54,9 @@ tests/
 - Performance figures are computed only from recorded trades and are always labelled
   PAPER / DEMO / LIVE. Empty means empty.
 
-## Commands (run on the server, or ask Claude)
+## Running
+On the Mac: double-click `Start Kalshi Agent.command` (see START_HERE.md). Dashboard at http://127.0.0.1:8080.
+
+## Commands (in Terminal, or ask Claude)
 `./kalshi status`, `markets`, `health`, `signals`, `trades`, `performance`, `research`,
 `costs`, `start`, `stop`, `kill`, `unkill`, `discover`.

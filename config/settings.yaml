@@ -60,9 +60,8 @@ dashboard:
 
 # Estimated monthly costs shown on the dashboard. Update when real bills arrive.
 costs:
-  - {item: "VPS (small Linux server)", monthly_usd: 5.00, note: "estimate; confirm on provider invoice"}
+  - {item: "Computer (runs on your Mac)", monthly_usd: 0.00, note: "no server rented"}
   - {item: "Kalshi market data API", monthly_usd: 0.00, note: "free"}
   - {item: "Crypto price data (Coinbase public API)", monthly_usd: 0.00, note: "free"}
   - {item: "GitHub private repo", monthly_usd: 0.00, note: "free"}
-  - {item: "HTTPS certificate (Let's Encrypt)", monthly_usd: 0.00, note: "free"}
   - {item: "LLM research agent", monthly_usd: 0.00, note: "not enabled yet (Phase 6)"}
