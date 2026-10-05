@@ -94,9 +94,19 @@ td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
 .lvl-critical{color:var(--crit)} .lvl-warning{color:var(--warn)} .lvl-error{color:var(--crit)}
 .cost{display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px solid var(--line)}
 .cost.total{font-weight:700;border-bottom:none;font-size:15px}
+.feedrow{grid-template-columns:3fr 2fr}
+.feeds{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+.feed{border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:12px;display:grid;gap:3px}
+.feed b{font-size:13px;font-weight:500;display:flex;align-items:center;gap:8px}
+.feed .stat{font-family:var(--mono);color:var(--ink)}
+.feed .off{color:var(--muted)}
+.bar{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--dial);margin:4px 0 2px}
+.bar i{display:block;height:100%}
+.qrow{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:6px 0;border-bottom:1px solid var(--line)}
+.qrow:last-child{border-bottom:none}
 .foot{margin-top:18px;font-size:12px;color:var(--muted);text-align:center}
 @media (max-width:900px){
-  .hero,.perf,.three{grid-template-columns:1fr}
+  .hero,.perf,.three,.feedrow{grid-template-columns:1fr}
   .gates{grid-template-columns:repeat(2,1fr)}
   .verdict .word{font-size:48px}
 }
@@ -147,6 +157,11 @@ td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
       <h2>Underlying prices, last hour</h2>
       <div class="spark" id="sparks"></div>
     </div>
+  </div>
+
+  <div class="grid feedrow" style="margin-top:16px">
+    <div class="panel"><h2>Live data feeds</h2><div class="feeds" id="feeds"></div><div class="muted" id="clockline" style="font-size:12px;margin-top:10px"></div></div>
+    <div class="panel"><h2>Learning data: past markets</h2><div id="quality"><div class="muted">Loading…</div></div></div>
   </div>
 
   <div class="panel" style="margin-top:16px">
@@ -215,12 +230,14 @@ function clock(m) {
     <text x="${c}" y="${c + 12}" text-anchor="middle" font-size="10" fill="var(--muted)" letter-spacing="1">YES ASK</text>
     <text x="${c}" y="${c + 30}" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="12" fill="var(--muted)">${left > 0 ? mm + ":" + String(ss).padStart(2, "0") + " left" : esc(m.result ? "settled " + m.result.toUpperCase() : "closed")}</text></svg>`;
   const u = m.underlying?.price, k = m.floor_strike ?? m.cap_strike;
-  const side = u != null && k != null ? (u > k ? `<span class="pos">above</span>` : `<span class="neg">below</span>`) : "";
+  const ix = m.underlying?.index, ref = ix?.avg60 ?? u;
+  const side = ref != null && k != null ? (ref > k ? `<span class="pos">above</span>` : `<span class="neg">below</span>`) : "";
   return `<div class="clock">
     <div class="sym"><b>${esc(m.symbol)}</b><span class="sig" title="${esc(m.signal_reason)}">${esc(m.signal)}</span></div>
     ${svg}
     <div class="row"><span>Strike</span><span class="mono">${k != null ? "$" + fmtPrice(k) : "—"}</span></div>
-    <div class="row"><span>Spot now</span><span class="mono">${u != null ? "$" + fmtPrice(u) : "—"} ${side}</span></div>
+    <div class="row"><span>Spot now</span><span class="mono">${u != null ? "$" + fmtPrice(u) : "—"}</span></div>
+    <div class="row" title="Kalshi settles on the 60-second average of the CF Benchmarks index. This is our free stand-in built from ${ix ? ix.n_sources : 0} exchanges."><span>Index, 60s avg</span><span class="mono">${ix?.avg60 != null ? "$" + fmtPrice(ix.avg60) : "—"} ${side}</span></div>
     <div class="row"><span>Bid / ask</span><span class="mono">${cents(m.yes_bid)} / ${cents(m.yes_ask)}</span></div>
     <div class="row"><span>Spread</span><span class="mono" style="color:${m.spread_ok ? "var(--ok)" : "var(--no)"}">${cents(m.spread)}</span></div>
     <div class="row"><span>Model P(yes)</span><span class="mono">${m.model_p_yes != null ? pct(m.model_p_yes) : "no model"}</span></div>
@@ -296,6 +313,17 @@ function render(d) {
       <span class="mono" style="text-align:right">${lastP != null ? "$" + fmtPrice(lastP) : "—"}<br><span class="${ch >= 0 ? "pos" : "neg"}" style="font-size:11px">${ch == null ? "" : (ch >= 0 ? "+" : "") + (ch * 100).toFixed(2) + "%"}</span></span></div>`;
   }).join("") || `<div class="empty">No price data yet.</div>`;
 
+  const stateDot = {live: "ok", down: "critical", waiting: "warning", off: ""};
+  $("feeds").innerHTML = (d.feeds || []).map(f => `<div class="feed">
+      <b><span class="dot ${stateDot[f.state] ?? ""}"></span>${esc(f.label)}</b>
+      <span class="muted">${esc(f.how)}</span>
+      ${f.state === "off" ? `<span class="off">${esc(f.note || "off")}</span>` : `<span class="stat">${f.age_s != null ? "updated " + (f.age_s < 60 ? Math.round(f.age_s) + "s" : Math.round(f.age_s / 60) + "m") + " ago" : "no data yet"}${f.msgs_per_min != null ? " · " + f.msgs_per_min + "/min" : ""}${f.latency_ms != null ? " · " + Math.round(f.latency_ms) + " ms delay" : ""}</span>
+      ${f.state !== "live" && f.note ? `<span class="muted">${esc(f.note)}</span>` : ""}`}
+      ${Object.keys(f.errors || {}).length ? `<span class="muted">not responding: ${esc(Object.keys(f.errors).join(", "))}</span>` : ""}
+    </div>`).join("");
+  const ck = (h?.checks || []).find(c => c.name === "clock");
+  $("clockline").textContent = ck ? "Clock check: " + ck.detail + ". Every row is stamped on arrival, and models may only use what had arrived by decision time." : "Clock check: not measured yet.";
+
   $("health").innerHTML = h ? h.checks.map(c => `<div title="${esc(c.detail)}"><span class="dot ${c.status}"></span>${esc(c.name.replace(/_/g, " "))}<span class="muted" style="font-size:11px;margin-left:auto">${esc(c.detail)}</span></div>`).join("") : `<div class="muted">Health check has not run yet.</div>`;
 
   const c = d.costs;
@@ -311,14 +339,39 @@ function render(d) {
     <tr><td>Market snapshots</td><td class="mono">${st.market_snapshots.toLocaleString()}</td></tr>
     <tr><td>Order book snapshots</td><td class="mono">${st.orderbook_snapshots.toLocaleString()}</td></tr>
     <tr><td>Crypto prices</td><td class="mono">${st.crypto_prices.toLocaleString()}</td></tr>
+    <tr><td>Index stand-in readings</td><td class="mono">${(st.index_ticks ?? 0).toLocaleString()}</td></tr>
+    <tr><td>Kalshi trades</td><td class="mono">${(st.kalshi_trades ?? 0).toLocaleString()}</td></tr>
+    <tr><td>History candles (Kalshi + crypto)</td><td class="mono">${((st.market_candles ?? 0) + (st.crypto_candles ?? 0)).toLocaleString()}</td></tr>
+    <tr><td>Database size</td><td class="mono">${st.db_mb != null ? st.db_mb + " MB" : "—"}</td></tr>
     <tr><td>Collecting since</td><td class="mono">${st.collecting_since_ms ? new Date(st.collecting_since_ms).toLocaleString() : "—"}</td></tr></table>`;
 
   $("foot").textContent = `v${s.version} · Phase ${s.phase} · Kalshi ${s.kalshi_env} · model ${s.model_version} · updated ${new Date().toLocaleTimeString()}`;
 }
 
+function renderQuality(q) {
+  const S = q.settled, bf = q.backfill, rows = [];
+  const syms = Object.entries(S.by_symbol || {});
+  rows.push(`<div class="qrow"><span>Settled markets saved</span><span class="mono">${S.total.toLocaleString()}</span></div>`);
+  if (S.first_close_ms) rows.push(`<div class="qrow"><span>Covering</span><span class="mono">${new Date(S.first_close_ms).toLocaleDateString()} – ${new Date(S.last_close_ms).toLocaleDateString()}</span></div>`);
+  rows.push(syms.length ? syms.map(([sym, b]) => { const n = b.yes + b.no, y = n ? b.yes / n : 0;
+    return `<div style="font-size:12px;margin-top:6px"><b>${esc(sym)}</b> <span class="muted">settled YES ${b.yes} · NO ${b.no} (${n ? Math.round(y * 100) : 0}% YES)</span>
+      <div class="bar"><i style="width:${y * 100}%;background:var(--yes)"></i><i style="width:${(1 - y) * 100}%;background:var(--no)"></i></div></div>`; }).join("")
+    : `<div class="muted" style="font-size:13px">No settled markets downloaded yet.</div>`);
+  rows.push(`<div class="qrow" style="margin-top:6px"><span>Markets with minute-by-minute prices</span><span class="mono">${S.with_candles.toLocaleString()}</span></div>`);
+  const ch = q.crypto_history || [];
+  if (ch.length) rows.push(`<div class="qrow"><span>Crypto price history</span><span class="mono">${ch.map(c => esc(c.symbol) + " " + Math.round(c.n / 1440) + "d").join(" · ")}</span></div>`);
+  const rc = q.rule_check;
+  if (rc.checked) rows.push(`<div class="qrow" title="Re-derives each result from Kalshi's reported settlement value and the strike, to confirm we understand the rule."><span>Settlement rule check</span><span class="mono ${rc.agree === rc.checked ? "pos" : "neg"}">${rc.agree} of ${rc.checked} match</span></div>`);
+  const pc = q.proxy_check;
+  rows.push(`<div class="qrow" title="Compares our free index stand-in (60s average before close) with the value Kalshi actually settled on."><span>Index stand-in vs real settlement</span><span class="mono">${pc.n ? `off by ${pc.mean_abs_pct.toFixed(3)}% avg · same side ${pc.agree}/${pc.n}` : "measured once live markets settle"}</span></div>`);
+  if (bf) rows.push(`<div class="muted" style="font-size:12px;margin-top:8px">History download: ${esc(bf.phase)}${bf.markets_done ? ` · ${bf.markets_done} markets fetched this run` : ""}${bf.errors ? ` · ${bf.errors} errors` : ""}</div>`);
+  $("quality").innerHTML = rows.join("");
+}
+
 async function loadSide() {
   try {
-    const [trades, research] = await Promise.all([api("/api/trades"), api("/api/research")]);
+    const [trades, research, q] = await Promise.all([api("/api/trades"), api("/api/research"), api("/api/quality")]);
+    renderQuality(q);
     $("trades").innerHTML = trades.length ? `<table><tr><th>Mode</th><th>Market</th><th>Side</th><th>Entry</th><th>Exit</th><th>Model P</th><th>Market P</th><th>Edge</th><th>P&amp;L</th><th>Why</th></tr>${
       trades.map(t => `<tr><td class="mono">${esc(t.mode)}</td><td class="mono">${esc(t.ticker)}</td><td>${esc(t.side)}</td><td class="mono">${cents(t.entry_price)}</td><td class="mono">${cents(t.exit_price)}</td><td class="mono">${pct(t.p_yes_at_entry)}</td><td class="mono">${pct(t.market_price_at_entry)}</td><td class="mono">${pct(t.edge_at_entry)}</td><td class="mono ${t.pnl >= 0 ? "pos" : "neg"}">${money(t.pnl)}</td><td>${esc(t.reason)}</td></tr>`).join("")}</table>`
       : `<div class="empty">No trades yet. Paper trading starts in Phase 5, and only when the trade gate is fully green.</div>`;
@@ -347,7 +400,7 @@ $("pauseBtn").onclick = async () => {
 
 refresh(); loadSide();
 setInterval(refresh, 5000);
-setInterval(loadSide, 30000);
+setInterval(loadSide, 20000);
 </script>
 </body>
 </html>

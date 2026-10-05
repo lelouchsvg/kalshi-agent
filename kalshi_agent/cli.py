@@ -8,6 +8,8 @@
   performance  P&L by mode (PAPER / DEMO / LIVE kept separate)
   research     models, experiments, backtests
   costs        estimated monthly running cost
+  feeds        live data feeds and the clock check
+  data         past markets downloaded for learning, and data checks
   start        resume data collection
   stop         pause data collection
   kill         engage the emergency kill switch
@@ -104,12 +106,33 @@ def main(argv: list[str] | None = None) -> int:
         c = state.costs(s)
         out(c, "\n".join(f"  ${float(i['monthly_usd']):>6.2f}  {i['item']}" for i in c["items"]) +
             f"\n  ${c['total_monthly_usd']:>6.2f}  estimated total per month")
+    elif cmd == "feeds":
+        fs = state.feeds(db, s)
+        clock = state.data_quality(db, s)["clock"]
+        lines = [f"  [{f['state']:>7}] {f['label']:<30} " +
+                 (f"{f['age_s']:.0f}s ago" if f["age_s"] is not None else "no data") +
+                 (f"  {f['note']}" if f["state"] != "live" and f["note"] else "") for f in fs]
+        lines.append(f"Clock: Mac is {clock['offset_ms'] / 1000:+.2f}s vs exchange" if clock else "Clock: not measured yet")
+        out({"feeds": fs, "clock": clock}, "\n".join(lines))
+    elif cmd == "data":
+        q = state.data_quality(db, s)
+        st = q["settled"]
+        lines = [f"Settled markets saved: {st['total']}  (with minute prices: {st['with_candles']})"]
+        lines += [f"  {sym}: YES {b['yes']}  NO {b['no']}" for sym, b in st["by_symbol"].items()]
+        rc, pc = q["rule_check"], q["proxy_check"]
+        if rc["checked"]:
+            lines.append(f"Settlement rule check: {rc['agree']} of {rc['checked']} results re-derived correctly")
+        lines.append(f"Index stand-in vs real settlement: off by {pc['mean_abs_pct']:.3f}% on average, same side "
+                     f"{pc['agree']}/{pc['n']}" if pc["n"] else "Index stand-in vs real settlement: not measured yet")
+        if q["backfill"]:
+            lines.append(f"History download: {q['backfill'].get('phase')}")
+        out(q, "\n".join(lines))
     elif cmd in ("start", "resume"):
         db.set_control("collector", "running", "cli")
         out({"ok": True}, "Data collection resumed.")
     elif cmd in ("stop", "pause"):
         db.set_control("collector", "paused", "cli")
-        out({"ok": True}, "Data collection paused. (Trading is also stopped; nothing trades in Phase 1.)")
+        out({"ok": True}, "Data collection paused. (Trading is also stopped; nothing trades before Phase 5.)")
     elif cmd == "kill":
         engage_kill(db, "cli", "kill command")
         out({"ok": True}, "KILL SWITCH ENGAGED. No trading of any kind until released.")

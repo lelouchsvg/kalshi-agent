@@ -16,9 +16,9 @@ from .db import Database, now_ms
 from .modes import TradingMode
 from .safety import LIVE_TRADING_UNLOCKED, kill_status
 
-PHASE = 1
-PHASE_NOTE = ("Phase 1: collecting market data only. No model, signal or trading engine exists yet, "
-              "so every decision is PASS.")
+PHASE = 2
+PHASE_NOTE = ("Phase 2: streaming live prices and downloading past markets to learn from. No model, "
+              "signal or trading engine exists yet, so every decision is PASS.")
 
 
 def _json(v: str | None, default: Any = None) -> Any:
@@ -74,7 +74,7 @@ def markets(db: Database, s: Settings) -> list[dict[str, Any]]:
         WHERE m.close_ms > ? OR m.close_ms IS NULL
         ORDER BY m.close_ms ASC
         LIMIT 60""", (now - 5 * 60_000,))
-    prices = latest_crypto(db)
+    prices = latest_crypto(db, s.symbols)
     for r in rows:
         r["seconds_to_close"] = (r["close_ms"] - now) / 1000 if r["close_ms"] else None
         r["underlying"] = prices.get(r["symbol"])
@@ -84,16 +84,22 @@ def markets(db: Database, s: Settings) -> list[dict[str, Any]]:
         r["model_p_yes"] = sig["p_yes"] if sig else None
         r["edge"] = sig["edge"] if sig else None
         r["signal"] = sig["action"] if sig else "PASS"
-        r["signal_reason"] = sig["explanation"] if sig else "No model yet (Phase 1)"
+        r["signal_reason"] = sig["explanation"] if sig else "No model yet (arrives in Phase 3)"
         r["spread_ok"] = r["spread"] is not None and r["spread"] <= s.risk.max_spread
     return rows
 
 
-def latest_crypto(db: Database) -> dict[str, dict[str, Any]]:
-    rows = db.query("""SELECT c.* FROM crypto_prices c JOIN (
-        SELECT symbol, MAX(received_ms) AS mx FROM crypto_prices GROUP BY symbol) t
-        ON c.symbol = t.symbol AND c.received_ms = t.mx""")
-    return {r["symbol"]: {"price": r["price"], "ts_ms": r["ts_ms"], "provider": r["provider"]} for r in rows}
+def latest_crypto(db: Database, symbols: list[str] | None = None) -> dict[str, dict[str, Any]]:
+    symbols = symbols or [r["symbol"] for r in db.query("SELECT DISTINCT symbol FROM markets WHERE symbol IS NOT NULL")]
+    out = {}
+    for sym in symbols:
+        r = db.query_one("SELECT price, ts_ms, provider FROM crypto_prices WHERE symbol=? "
+                         "ORDER BY ts_ms DESC LIMIT 1", (sym,))
+        if r:
+            ix = db.query_one("SELECT value, avg60, n_sources, received_ms FROM index_ticks WHERE symbol=? "
+                              "ORDER BY received_ms DESC LIMIT 1", (sym,))
+            out[sym] = {**r, "index": ix}
+    return out
 
 
 def crypto_series(db: Database, symbol: str, minutes: int = 60) -> list[list[float]]:
@@ -178,8 +184,13 @@ def costs(s: Settings) -> dict[str, Any]:
 
 def data_stats(db: Database) -> dict[str, Any]:
     out = {}
-    for t in ("markets", "market_snapshots", "orderbook_snapshots", "crypto_prices", "signals", "trades"):
+    for t in ("markets", "market_snapshots", "orderbook_snapshots", "crypto_prices", "index_ticks",
+              "kalshi_trades", "market_candles", "crypto_candles", "signals", "trades"):
         out[t] = db.query_one(f"SELECT COUNT(*) AS n FROM {t}")["n"]
+    try:
+        out["db_mb"] = round(sum(p.stat().st_size for p in db.path.parent.glob(db.path.name + "*")) / 1e6, 1)
+    except (OSError, ValueError):
+        out["db_mb"] = None
     first = db.query_one("SELECT MIN(ts_ms) AS t FROM market_snapshots")["t"]
     out["collecting_since_ms"] = first
     out["settled_markets"] = db.query_one(
@@ -210,3 +221,88 @@ def trade_gates(db: Database, s: Settings) -> list[dict[str, Any]]:
         {"gate": "System health", "ok": health_ok, "why": "healthy" if health_ok else
          ("kill switch engaged" if ks.killed else "health check failing or not run yet")},
     ]
+
+
+def outcome_from_value(strike_type: str | None, floor: float | None, cap: float | None,
+                       value: float | None) -> str | None:
+    """What a market resolves to for a given settlement value (None if we can't tell)."""
+    if value is None:
+        return None
+    st = (strike_type or "").lower()
+    if st in ("greater", "greater_or_equal", "above") and floor is not None:
+        return "yes" if (value > floor or (st == "greater_or_equal" and value == floor)) else "no"
+    if st in ("less", "less_or_equal", "below") and cap is not None:
+        return "yes" if (value < cap or (st == "less_or_equal" and value == cap)) else "no"
+    if st == "between" and floor is not None and cap is not None:
+        return "yes" if floor <= value <= cap else "no"
+    return None
+
+
+def feeds(db: Database, s: Settings) -> list[dict[str, Any]]:
+    now = now_ms()
+    hb = {r["component"]: r for r in db.query("SELECT component, ts_ms, info_json FROM heartbeats")}
+    labels = [
+        ("feed:coinbase_ws", "Crypto prices, real-time", "Coinbase WebSocket"),
+        ("feed:index_proxy", "Settlement index stand-in", "median of 4 exchanges, every few seconds"),
+        ("snapshots", "Kalshi prices & order books", f"polled every {s.snapshot_interval_s}s"),
+        ("trades", "Kalshi public trades", f"polled every {s.trades_interval_s}s"),
+        ("feed:kalshi_ws", "Kalshi real-time stream", "optional, needs an API key"),
+    ]
+    out = []
+    for key, label, how in labels:
+        row = hb.get(key)
+        info = _json(row["info_json"], {}) if row else {}
+        last = info.get("last_msg_ms") or (row["ts_ms"] if row and not key.startswith("feed:") else None)
+        age = (now - last) / 1000 if last else None
+        live = age is not None and age < max(30, 3 * s.snapshot_interval_s)
+        state = "live" if live else ("off" if key == "feed:kalshi_ws" and not info.get("connected")
+                                     and not s.has_kalshi_credentials else "down" if row else "waiting")
+        out.append({"key": key, "label": label, "how": how, "state": state, "age_s": age,
+                    "msgs_per_min": info.get("msgs_per_min"), "latency_ms": info.get("latency_ms_median"),
+                    "note": info.get("note") or info.get("last_error") or "",
+                    "errors": info.get("source_errors") or {}})
+    return out
+
+
+def data_quality(db: Database, s: Settings) -> dict[str, Any]:
+    clock = _json(db.get_control("clock"), None)
+    backfill = _json(db.get_control("backfill"), None)
+    settled = db.query("""
+        SELECT ticker, symbol, close_ms, result, strike_type, floor_strike, cap_strike, expiration_value
+        FROM markets WHERE result IN ('yes','no') ORDER BY close_ms DESC LIMIT 3000""")
+    by_symbol: dict[str, dict[str, int]] = {}
+    rule_checked = rule_agree = 0
+    for m in settled:
+        b = by_symbol.setdefault(m["symbol"] or "?", {"yes": 0, "no": 0})
+        b[m["result"]] += 1
+        implied = outcome_from_value(m["strike_type"], m["floor_strike"], m["cap_strike"], m["expiration_value"])
+        if implied:
+            rule_checked += 1
+            rule_agree += implied == m["result"]
+    # How well our free index stand-in matches Kalshi's reported settlement value.
+    from .timeseries import settlement_proxy
+    diffs, side_agree, n_proxy = [], 0, 0
+    for m in settled[:500]:
+        if m["expiration_value"] is None or m["close_ms"] is None:
+            continue
+        proxy = settlement_proxy(db, m["symbol"], m["close_ms"])
+        if proxy is None:
+            continue
+        n_proxy += 1
+        diffs.append(abs(proxy - m["expiration_value"]) / m["expiration_value"] * 100)
+        side_agree += outcome_from_value(m["strike_type"], m["floor_strike"], m["cap_strike"], proxy) == m["result"]
+    with_candles = db.query_one("SELECT COUNT(*) AS n FROM backfill_log WHERE candles > 0")["n"]
+    crypto_hist = db.query("SELECT symbol, COUNT(*) AS n, MIN(start_ms) AS first_ms, MAX(start_ms) AS last_ms "
+                           "FROM crypto_candles GROUP BY symbol ORDER BY symbol")
+    return {
+        "clock": clock,
+        "backfill": backfill,
+        "settled": {"total": len(settled), "by_symbol": by_symbol, "with_candles": with_candles,
+                    "first_close_ms": settled[-1]["close_ms"] if settled else None,
+                    "last_close_ms": settled[0]["close_ms"] if settled else None},
+        "rule_check": {"checked": rule_checked, "agree": rule_agree},
+        "proxy_check": {"n": n_proxy, "agree": side_agree,
+                        "mean_abs_pct": sum(diffs) / len(diffs) if diffs else None,
+                        "max_abs_pct": max(diffs) if diffs else None},
+        "crypto_history": crypto_hist,
+    }

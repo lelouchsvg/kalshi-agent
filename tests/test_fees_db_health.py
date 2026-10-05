@@ -76,7 +76,7 @@ def _market(sym, close_in_s=600):
     now = now_ms()
     return Market(f"KX{sym}15M-X", f"KX{sym}15M-E", "active", "t", now - 300_000,
                   now + close_in_s * 1000, None, 0.48, 0.51, 0.49, 0.52, 0.5, 10, 5,
-                  "greater", 100.0, None, None, None, {})
+                  "greater", 100.0, None, None, None, raw={})
 
 
 def test_discovery_stores_markets_and_snapshots(db, settings):

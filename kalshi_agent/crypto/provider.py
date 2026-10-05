@@ -10,7 +10,7 @@ from __future__ import annotations
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 import requests
 
@@ -77,8 +77,8 @@ class CoinbaseProvider(CryptoDataProvider):
         r = self.session.get(
             f"{self.BASE}/products/{self.PRODUCTS[symbol]}/candles",
             params={"granularity": granularity_s,
-                    "start": datetime.utcfromtimestamp(start_ms / 1000).isoformat(),
-                    "end": datetime.utcfromtimestamp(end_ms / 1000).isoformat()},
+                    "start": datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).isoformat(),
+                    "end": datetime.fromtimestamp(end_ms / 1000, tz=timezone.utc).isoformat()},
             timeout=self.timeout)
         r.raise_for_status()
         # rows: [time, low, high, open, close, volume], newest first

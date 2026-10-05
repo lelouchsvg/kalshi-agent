@@ -82,7 +82,16 @@ def test_cli_commands(settings, db, monkeypatch, capsys):
     from kalshi_agent import cli
     monkeypatch.setattr(cli, "load_settings", lambda: settings)
     for cmd in ("status", "health", "markets", "signals", "trades", "performance", "research",
-                "costs", "stop", "start", "kill", "unkill", "paper", "backtest"):
+                "costs", "feeds", "data", "stop", "start", "kill", "unkill", "paper", "backtest"):
         assert cli.main([cmd]) == 0, cmd
     out = capsys.readouterr().out
-    assert "Phase 1" in out and "No paper trades yet" in out and "Phase 4" in out
+    assert "Phase 2" in out and "No paper trades yet" in out and "Phase 4" in out
+
+
+def test_dashboard_phase2_panels(settings, dash):
+    base = dash()
+    body = json.loads(call(base + "/api/overview")[1])
+    assert {f["key"] for f in body["feeds"]} >= {"feed:coinbase_ws", "feed:index_proxy", "feed:kalshi_ws"}
+    status, text = call(base + "/api/quality")
+    q = json.loads(text)
+    assert status == 200 and q["settled"]["total"] == 0 and q["proxy_check"]["n"] == 0

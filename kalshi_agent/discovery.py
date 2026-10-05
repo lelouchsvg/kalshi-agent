@@ -7,7 +7,7 @@ import re
 
 from .db import Database, now_ms
 from .kalshi.client import KalshiAPIError, KalshiClient
-from .kalshi.models import Market
+from .kalshi.models import Market, iso_to_ms, price, qty
 
 log = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ def upsert_market(db: Database, m: Market, symbol: str, series_ticker: str) -> N
         "symbol": symbol, "title": m.title, "status": m.status, "open_ms": m.open_ms,
         "close_ms": m.close_ms, "expiration_ms": m.expiration_ms, "strike_type": m.strike_type,
         "floor_strike": m.floor_strike, "cap_strike": m.cap_strike, "result": m.result,
-        "rules_primary": m.rules_primary,
+        "rules_primary": m.rules_primary, "expiration_value": m.expiration_value,
         "first_seen_ms": existing["first_seen_ms"] if existing else ts,
         "updated_ms": ts, "raw_json": json.dumps(m.raw)}, "ticker")
 
@@ -124,8 +124,9 @@ def refresh_markets(client: KalshiClient, db: Database, tickers: list[str], dept
         return 0
     markets = client.get_markets(tickers=tickers, max_pages=1)
     for m in markets:
-        db.execute("UPDATE markets SET status=?, result=?, updated_ms=? WHERE ticker=?",
-                   (m.status, m.result, now_ms(), m.ticker))
+        db.execute("UPDATE markets SET status=?, result=?, expiration_value=COALESCE(?, expiration_value), "
+                   "updated_ms=? WHERE ticker=?",
+                   (m.status, m.result, m.expiration_value, now_ms(), m.ticker))
         record_snapshot(db, m)
         if m.is_tradeable_status:
             try:
@@ -134,3 +135,19 @@ def refresh_markets(client: KalshiClient, db: Database, tickers: list[str], dept
                 log.warning("Orderbook %s failed: %s", m.ticker, exc)
     db.heartbeat("snapshots", {"markets": len(markets)})
     return len(markets)
+
+
+def record_trades(client: KalshiClient, db: Database, ticker: str, since_ms: int | None = None) -> int:
+    """Store public trades printed on a market since `since_ms` (duplicates ignored)."""
+    trades = client.get_trades(ticker, min_ts=since_ms // 1000 if since_ms else None, max_pages=3)
+    received = now_ms()
+    rows = []
+    for t in trades:
+        tid = t.get("trade_id")
+        ts = iso_to_ms(t.get("created_time"))
+        if not tid or ts is None:
+            continue
+        rows.append({"trade_id": str(tid), "ticker": t.get("ticker") or ticker, "ts_ms": ts,
+                     "received_ms": received, "yes_price": price(t, "yes_price"),
+                     "count": qty(t, "count"), "taker_side": t.get("taker_side")})
+    return db.insert_many("kalshi_trades", rows, or_ignore=True)

@@ -6,6 +6,7 @@ Legacy integer-cent fields are read only as a fallback.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -34,11 +35,15 @@ def qty(d: dict[str, Any], name: str) -> float | None:
     return v if v is not None else to_float(d.get(name))
 
 
+_FRACTION = re.compile(r"(\.\d{6})\d+")
+
+
 def iso_to_ms(value: Any) -> int | None:
     if not value:
         return None
+    text = _FRACTION.sub(r"\1", str(value).replace("Z", "+00:00"))  # nanoseconds -> micro
     try:
-        return int(datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp() * 1000)
+        return int(datetime.fromisoformat(text).timestamp() * 1000)
     except ValueError:
         return None
 
@@ -64,6 +69,7 @@ class Market:
     cap_strike: float | None
     result: str | None
     rules_primary: str | None
+    expiration_value: float | None = None
     raw: dict[str, Any] = field(repr=False, default_factory=dict)
 
     @property
@@ -107,6 +113,7 @@ class Market:
             cap_strike=to_float(d.get("cap_strike")),
             result=d.get("result") or None,
             rules_primary=d.get("rules_primary"),
+            expiration_value=to_float(d.get("expiration_value")),
             raw=d,
         )
 

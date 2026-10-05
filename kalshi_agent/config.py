@@ -57,7 +57,15 @@ class Settings:
     crypto_interval_s: int = 5
     health_interval_s: int = 30
     orderbook_depth: int = 10
+    trades_interval_s: int = 15
+    index_interval_s: int = 5
+    clock_interval_s: int = 600
     max_requests_per_second: float = 5
+    coinbase_stream: bool = True
+    kalshi_stream: bool = True          # only runs when API credentials exist
+    backfill_days: int = 14
+    orderbook_levels_keep_days: int = 14
+    max_clock_offset_ms: float = 1000
     max_data_age_s: int = 60
     max_heartbeat_age_s: int = 90
     max_disk_pct: float = 90
@@ -138,16 +146,20 @@ def load_settings(config_path: Path | None = None, env: dict[str, str] | None = 
     s.model_version = str((raw.get("model") or {}).get("version", "NONE"))
     col = raw.get("collection") or {}
     for key in ("discovery_interval_s", "snapshot_interval_s", "crypto_interval_s",
-                "health_interval_s", "orderbook_depth"):
+                "health_interval_s", "orderbook_depth", "trades_interval_s", "index_interval_s",
+                "clock_interval_s", "backfill_days", "orderbook_levels_keep_days"):
         if key in col:
             setattr(s, key, int(col[key]))
     if "max_requests_per_second" in col:
         s.max_requests_per_second = float(col["max_requests_per_second"])
+    for key in ("coinbase_stream", "kalshi_stream"):
+        if key in col:
+            setattr(s, key, bool(col[key]))
     h = raw.get("health") or {}
     for key in ("max_data_age_s", "max_heartbeat_age_s"):
         if key in h:
             setattr(s, key, int(h[key]))
-    for key in ("max_disk_pct", "max_mem_pct"):
+    for key in ("max_disk_pct", "max_mem_pct", "max_clock_offset_ms"):
         if key in h:
             setattr(s, key, float(h[key]))
     s.crypto_provider = str(raw.get("crypto_provider", "coinbase")).lower()

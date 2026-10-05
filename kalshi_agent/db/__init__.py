@@ -9,8 +9,14 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 _SCHEMA_FILE = Path(__file__).with_name("schema.sql")
+
+# Columns added after a table first shipped: (table, column, type). Applied once, in order,
+# to databases created by an older version, so updating never loses collected data.
+MIGRATIONS: list[tuple[str, str, str]] = [
+    ("markets", "expiration_value", "REAL"),   # v2: the settlement index value Kalshi reports
+]
 
 
 def now_ms() -> int:
@@ -32,8 +38,12 @@ class Database:
     def init_schema(self) -> None:
         with self._lock:
             self._conn.executescript(_SCHEMA_FILE.read_text())
+            for table, column, ctype in MIGRATIONS:
+                cols = {r["name"] for r in self._conn.execute(f"PRAGMA table_info({table})")}
+                if column not in cols:
+                    self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ctype}")
             row = self._conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
-            if row["v"] is None:
+            if row["v"] is None or row["v"] < SCHEMA_VERSION:
                 self._conn.execute("INSERT INTO schema_version VALUES (?, ?)", (SCHEMA_VERSION, now_ms()))
             self._conn.commit()
 
@@ -64,6 +74,16 @@ class Database:
         marks = ", ".join("?" for _ in row)
         cur = self.execute(f"INSERT INTO {table} ({cols}) VALUES ({marks})", tuple(row.values()))
         return int(cur.lastrowid)
+
+    def insert_many(self, table: str, rows: list[dict[str, Any]], or_ignore: bool = False) -> int:
+        if not rows:
+            return 0
+        cols = list(rows[0])
+        verb = "INSERT OR IGNORE" if or_ignore else "INSERT"
+        sql = f"{verb} INTO {table} ({', '.join(cols)}) VALUES ({', '.join('?' for _ in cols)})"
+        with self.tx() as c:
+            cur = c.executemany(sql, [tuple(r[k] for k in cols) for r in rows])
+            return cur.rowcount
 
     def upsert(self, table: str, row: dict[str, Any], key: str | tuple[str, ...]) -> None:
         keys = (key,) if isinstance(key, str) else key

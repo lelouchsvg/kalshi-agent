@@ -264,3 +264,60 @@ CREATE TABLE IF NOT EXISTS series_info (
     updated_ms INTEGER NOT NULL,
     raw_json TEXT
 );
+
+-- ---------------------------------------------------------------------------
+-- v2 (Phase 2): streaming data, settlement index proxy, history backfill.
+-- Columns added to existing tables are applied by db.MIGRATIONS.
+
+CREATE INDEX IF NOT EXISTS idx_crypto_received ON crypto_prices(received_ms);
+CREATE INDEX IF NOT EXISTS idx_snap_ts ON market_snapshots(ts_ms);
+
+-- Proxy for the CF Benchmarks settlement index (median of several exchanges).
+CREATE TABLE IF NOT EXISTS index_ticks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    received_ms INTEGER NOT NULL,    -- when we computed it (the only clock features may use)
+    value REAL NOT NULL,
+    avg60 REAL,                      -- average over the previous 60 s, like the settlement rule
+    n_sources INTEGER NOT NULL,
+    sources_json TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_index_symbol_rx ON index_ticks(symbol, received_ms);
+
+-- Public trades printed on Kalshi markets.
+CREATE TABLE IF NOT EXISTS kalshi_trades (
+    trade_id TEXT PRIMARY KEY,
+    ticker TEXT NOT NULL,
+    ts_ms INTEGER NOT NULL,          -- exchange time of the trade
+    received_ms INTEGER NOT NULL,
+    yes_price REAL,
+    count REAL,
+    taker_side TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ktrades_ticker_ts ON kalshi_trades(ticker, ts_ms);
+
+-- One-minute Kalshi candles for settled markets (history for training and backtests).
+CREATE TABLE IF NOT EXISTS market_candles (
+    ticker TEXT NOT NULL,
+    end_ms INTEGER NOT NULL,         -- the candle is only known after this moment
+    yes_bid_close REAL, yes_ask_close REAL,
+    price_close REAL,
+    volume REAL, open_interest REAL,
+    PRIMARY KEY (ticker, end_ms)
+);
+
+-- One-minute underlying candles from an exchange.
+CREATE TABLE IF NOT EXISTS crypto_candles (
+    symbol TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    start_ms INTEGER NOT NULL,       -- known only after start_ms + 60 s
+    open REAL, high REAL, low REAL, close REAL, volume REAL,
+    PRIMARY KEY (symbol, provider, start_ms)
+);
+
+CREATE TABLE IF NOT EXISTS backfill_log (
+    ticker TEXT PRIMARY KEY,
+    candles INTEGER NOT NULL,
+    fetched_ms INTEGER NOT NULL,
+    error TEXT
+);

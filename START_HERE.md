@@ -21,6 +21,16 @@ bash ~/kalshi-agent/start.sh
 Double-click **Stop Kalshi Agent.command** (or in Terminal: `bash ~/kalshi-agent/stop.sh`).
 For an emergency stop of trading only, press the red **KILL SWITCH** on the dashboard.
 
+## Installing an update from Claude (keeps all collected data)
+1. Download the new `kalshi-agent.zip` and double-click it. You get a `kalshi-agent` folder in Downloads.
+2. Open Terminal, type `bash ` (with a space), drag `install_update.sh` from that **new** folder
+   into the window, and press Enter.
+3. It stops the agent, backs up your database to `data/backups/`, copies the new code into
+   `~/kalshi-agent`, runs the safety tests and restarts. Your data, logs and `.env` are never touched.
+
+Don't drag the new folder over the old one in Finder: Finder's "Replace" deletes the old folder,
+including the collected data.
+
 ## Things to know about running on a laptop
 - **It only works while the Mac is awake.** The agent keeps the Mac from idle-sleeping while
   it runs, but closing the lid still puts it to sleep. Keep it plugged in with the lid open.

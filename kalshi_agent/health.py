@@ -46,6 +46,35 @@ def _age_check(db: Database, name: str, sql: str, max_age_s: float, critical: bo
     return Check(name, status, f"{age:.0f}s old (limit {max_age_s:.0f}s)", age)
 
 
+def _clock_check(db: Database, settings) -> Check:
+    raw = db.get_control("clock")
+    if not raw:
+        return Check("clock", WARN, "not measured yet")
+    c = json.loads(raw)
+    off = float(c["offset_ms"])
+    limit = getattr(settings, "max_clock_offset_ms", 1000)
+    status = OK if abs(off) <= limit else (WARN if abs(off) <= 5 * limit else CRIT)
+    return Check("clock", status, f"Mac clock {off / 1000:+.2f}s vs exchange (limit ±{limit / 1000:.1f}s)", off)
+
+
+def _feed_checks(db: Database) -> list[Check]:
+    """Streaming feeds are helpful, not required (REST polling covers gaps), so they warn."""
+    out = []
+    for name, label, max_age in (("coinbase_ws", "price_stream", 30), ("index_proxy", "index_proxy", 30)):
+        row = db.query_one("SELECT info_json FROM heartbeats WHERE component=?", (f"feed:{name}",))
+        if not row:
+            continue
+        info = json.loads(row["info_json"] or "{}")
+        last = info.get("last_msg_ms")
+        age = (now_ms() - last) / 1000 if last else None
+        if age is not None and age <= max_age:
+            out.append(Check(label, OK, f"live, last update {age:.0f}s ago", age))
+        else:
+            why = info.get("last_error") or "no recent data"
+            out.append(Check(label, WARN, f"{why}; using backup polling"[:200], age))
+    return out
+
+
 def run_health(db: Database, settings, *, api_probe: Callable[[], object] | None = None,
                crypto_probe: Callable[[], object] | None = None, killed: bool = False) -> HealthReport:
     checks: list[Check] = []
@@ -80,6 +109,9 @@ def run_health(db: Database, settings, *, api_probe: Callable[[], object] | None
     checks.append(_age_check(db, "collector_heartbeat",
                              "SELECT ts_ms AS ts FROM heartbeats WHERE component='collector'",
                              settings.max_heartbeat_age_s))
+
+    checks.append(_clock_check(db, settings))
+    checks.extend(_feed_checks(db))
 
     model = settings.model_version
     if model in ("", "NONE"):

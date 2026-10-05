@@ -146,6 +146,13 @@ class KalshiClient:
             params={"start_ts": start_ts, "end_ts": end_ts, "period_interval": period_interval},
         ).get("candlesticks") or []
 
+    def get_historical_candlesticks(self, ticker: str, start_ts: int, end_ts: int,
+                                    period_interval: int = 1) -> list[dict[str, Any]]:
+        return self._request(
+            "GET", f"/historical/markets/{ticker}/candlesticks",
+            params={"start_ts": start_ts, "end_ts": end_ts, "period_interval": period_interval},
+        ).get("candlesticks") or []
+
     def get_historical_cutoff(self) -> dict[str, Any]:
         return self._request("GET", "/historical/cutoff")
 

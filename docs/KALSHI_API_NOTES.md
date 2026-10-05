@@ -51,3 +51,25 @@ guides; the collector also auto-detects 15-minute crypto series if these return 
 Settlement reported as the 60-second average of the CF Benchmarks real-time index before
 close, compared with the strike. **To confirm against each market's `rules_primary` text once
 the server is collecting** (this build environment's network could not reach Kalshi directly).
+
+
+## Phase 2 notes (2026-10-05)
+
+- **Keyless operation.** Kalshi's WebSocket needs a signed handshake even for public channels, so
+  without an API key the collector polls REST: markets + order books every 10 s, public trades
+  (`GET /markets/trades`) every 15 s. `stream/kalshi_ws.py` is ready for when a key exists
+  (channels `orderbook_delta`, `ticker`, `trade`; local book from snapshot + deltas; resync on a
+  sequence gap). Its field names (`*_dollars_fp`, `price_dollars`, `delta_fp`) are **unverified
+  against live messages**; the parser accepts legacy cent fields too.
+- **Settlement index.** CF Benchmarks RTI is paid (Kalshi relays it on the `cfbenchmarks_value`
+  channel to keyed users). We store a stand-in in `index_ticks`: median mid-price of Coinbase,
+  Kraken, Bitstamp and Gemini (outliers beyond 1% dropped) plus a rolling 60 s average. The
+  dashboard measures it against each settled market's `expiration_value`.
+- **Settlement rule check.** For each settled market we re-derive the result from
+  `expiration_value`, `strike_type` and the strike, and show how many match.
+- **History.** Settled markets come from `GET /markets?status=settled&min_close_ts=…`; one-minute
+  candles from `/series/{s}/markets/{t}/candlesticks`, falling back to
+  `/historical/markets/{t}/candlesticks` for markets past the historical cutoff. Coinbase
+  one-minute candles (300 per request) give the underlying history.
+- None of this was reachable from the build environment (its network blocks these hosts), so live
+  behaviour is confirmed only once it runs on the Mac.

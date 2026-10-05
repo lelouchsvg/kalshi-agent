@@ -44,13 +44,21 @@ collection:
   crypto_interval_s: 5
   health_interval_s: 30
   orderbook_depth: 10
+  trades_interval_s: 15         # public Kalshi trades
+  index_interval_s: 5           # settlement-index stand-in (4 exchanges)
+  clock_interval_s: 600         # how often to check this Mac's clock
   max_requests_per_second: 5    # well under Kalshi's basic tier limit
+  coinbase_stream: true         # real-time BTC/ETH/SOL prices (free, no account)
+  kalshi_stream: true           # real-time Kalshi order books; runs only once an API key is set up
+  backfill_days: 14             # how much past history to download for training
+  orderbook_levels_keep_days: 14  # full order-book ladders older than this are trimmed to save disk
 
 health:
   max_data_age_s: 60            # older market data = stale = no trading
   max_heartbeat_age_s: 90
   max_disk_pct: 90
   max_mem_pct: 90
+  max_clock_offset_ms: 1000     # Mac clock more than 1 s off an exchange clock = warning
 
 crypto_provider: coinbase       # coinbase | kraken
 
