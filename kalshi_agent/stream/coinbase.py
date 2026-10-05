@@ -68,6 +68,9 @@ class CoinbaseStream(StreamFeed):
         if time.monotonic() - self._last_flush >= 1.0:
             self.flush()
 
+    def on_close(self) -> None:
+        self.flush()
+
     def flush(self) -> int:
         self._last_flush = time.monotonic()
         with self._lock:

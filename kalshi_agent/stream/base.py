@@ -95,6 +95,9 @@ class StreamFeed(threading.Thread):
     def on_idle(self) -> None:
         """Called at least once a second while connected; for periodic flushing."""
 
+    def on_close(self) -> None:
+        """Called when a connection ends, so buffered data is not lost."""
+
     def _maybe_save(self, force: bool = False) -> None:
         if force or time.monotonic() - self._last_save >= 5:
             self._last_save = time.monotonic()
@@ -131,6 +134,10 @@ class StreamFeed(threading.Thread):
                 self._maybe_save()
         finally:
             self.stats.connected = False
+            try:
+                self.on_close()
+            except Exception:
+                log.exception("%s close handler failed", self.name_)
             ws.close()
             self._maybe_save(force=True)
 

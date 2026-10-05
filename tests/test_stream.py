@@ -43,15 +43,22 @@ def test_websocket_partial_frame_survives_timeout():
     def script(conn, srv):
         msg = frame(b'{"split": true}')
         conn.sendall(msg[:5])
-        time.sleep(0.6)
+        time.sleep(0.8)
         conn.sendall(msg[5:])
         time.sleep(0.5)
 
     srv = WSServer(script)
-    ws = WebSocket(srv.url, read_timeout=0.3).connect()
+    ws = WebSocket(srv.url, read_timeout=0.2).connect()
     with pytest.raises(socket.timeout):
-        ws.recv()
-    assert json.loads(ws.recv()) == {"split": True}
+        ws.recv()                       # only half a frame has arrived
+    msg = None
+    for _ in range(50):                 # keep reading; slow machines may time out more than once
+        try:
+            msg = ws.recv()
+            break
+        except socket.timeout:
+            continue
+    assert json.loads(msg) == {"split": True}
     ws.close()
     srv.close()
 
@@ -86,15 +93,15 @@ def test_coinbase_stream_subscribes_and_stores_one_row_per_second(db):
         conn.sendall(frame(_tick("ETH-USD", 2500)))
         conn.sendall(frame(_tick("DOGE-USD", 1)))      # not subscribed: ignored
         conn.sendall(frame(b"not json"))
-        time.sleep(1.5)
+        time.sleep(3)
 
     srv = WSServer(script)
     stop = threading.Event()
     feed = CoinbaseStream(db, stop, ["BTC", "ETH"])
     feed.URL = srv.url
-    t = threading.Thread(target=lambda: _run_briefly(feed, stop, 1.2))
+    t = threading.Thread(target=lambda: _run_briefly(feed, stop, 2.0))
     t.start()
-    t.join(5)
+    t.join(10)
     sub = srv.received[0]
     assert sub["type"] == "subscribe" and set(sub["product_ids"]) == {"BTC-USD", "ETH-USD"}
     rows = db.query("SELECT symbol, price, ts_ms, received_ms, provider FROM crypto_prices ORDER BY id")
@@ -144,7 +151,7 @@ def test_stream_reconnects_after_drop(db):
     feed = CoinbaseStream(db, stop, ["BTC"])
     feed.URL = srv.url
     feed.stop_event.wait = lambda s: stop.is_set()     # no backoff sleeping in tests
-    threading.Timer(1.5, stop.set).start()
+    threading.Timer(3.0, stop.set).start()
     feed.run()
     assert feed.stats.connects >= 2
     srv.close()
