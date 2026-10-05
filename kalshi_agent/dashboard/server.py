@@ -1,17 +1,20 @@
 """Dashboard web server: JSON API + the single-page dashboard.
 
-Security: every route needs the dashboard password (HTTP Basic auth, username
-"zeke" or anything). The server refuses to listen on a public address without a
-password. On the VPS it listens on localhost behind Caddy, which adds HTTPS.
+Built on Python's standard library only, so it installs on any Mac.
+Security: listens on 127.0.0.1 (this computer only) by default. If it is ever
+bound to another address, a DASHBOARD_PASSWORD is required (HTTP Basic auth).
 """
 from __future__ import annotations
 
+import base64
+import binascii
+import json
+import logging
 import secrets
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-
-from fastapi import Depends, FastAPI, HTTPException, Request, status as http
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from typing import Any, Callable
 
 from .. import state
 from ..config import Settings, load_settings
@@ -19,97 +22,156 @@ from ..db import Database, open_db
 from ..safety import engage_kill, release_kill
 
 STATIC = Path(__file__).with_name("static")
+LOCAL_HOSTS = ("127.0.0.1", "localhost")
+log = logging.getLogger("dashboard")
 
 
-def create_app(settings: Settings | None = None, db: Database | None = None) -> FastAPI:
-    s = settings or load_settings()
-    database = db or open_db(s.db_path)
-    app = FastAPI(title="Kalshi Agent", docs_url=None, redoc_url=None, openapi_url=None)
-    basic = HTTPBasic(auto_error=False)
+class HTTPError(Exception):
+    def __init__(self, status: int, message: str, headers: dict[str, str] | None = None):
+        super().__init__(message)
+        self.status, self.message, self.headers = status, message, headers or {}
 
-    def auth(creds: HTTPBasicCredentials | None = Depends(basic)) -> str:
-        if not s.dashboard_password:
-            if s.dashboard_host in ("127.0.0.1", "localhost"):
-                return "local"
-            raise HTTPException(http.HTTP_503_SERVICE_UNAVAILABLE, "Dashboard password not configured")
-        if creds is None or not secrets.compare_digest(creds.password.encode(), s.dashboard_password.encode()):
-            raise HTTPException(http.HTTP_401_UNAUTHORIZED, "Login required",
-                                headers={"WWW-Authenticate": 'Basic realm="kalshi-agent"'})
-        return creds.username or "user"
 
-    @app.middleware("http")
-    async def security_headers(request: Request, call_next):
-        resp = await call_next(request)
-        resp.headers["X-Frame-Options"] = "DENY"
-        resp.headers["X-Content-Type-Options"] = "nosniff"
-        resp.headers["Referrer-Policy"] = "no-referrer"
-        resp.headers["Cache-Control"] = "no-store"
-        return resp
+class DashboardApp:
+    """Routes requests to handlers. Kept separate from the HTTP plumbing so it is easy to test."""
 
-    @app.get("/")
-    def index(user: str = Depends(auth)):
-        return FileResponse(STATIC / "index.html")
-
-    @app.get("/api/overview")
-    def overview(user: str = Depends(auth)):
-        return {
-            "status": state.status(database, s),
-            "markets": state.markets(database, s),
-            "gates": state.trade_gates(database, s),
-            "performance": {m: state.performance(database, m) for m in ("PAPER", "DEMO", "LIVE")},
-            "costs": state.costs(s),
-            "data": state.data_stats(database),
-            "events": state.events(database, 25),
-            "crypto": {sym: state.crypto_series(database, sym, 60) for sym in s.symbols},
+    def __init__(self, settings: Settings, db: Database):
+        self.s = settings
+        self.db = db
+        self.get_routes: dict[str, Callable[[str], Any]] = {
+            "/api/overview": self.overview,
+            "/api/trades": lambda u: state.recent_trades(self.db),
+            "/api/signals": lambda u: state.recent_signals(self.db),
+            "/api/research": lambda u: state.research(self.db),
+            "/api/health": lambda u: state.status(self.db, self.s)["health"] or {"overall": "unknown", "checks": []},
         }
 
-    @app.get("/api/trades")
-    def trades(user: str = Depends(auth)):
-        return state.recent_trades(database)
+    def authenticate(self, auth_header: str | None) -> str:
+        if not self.s.dashboard_password:
+            if self.s.dashboard_host in LOCAL_HOSTS:
+                return "local"
+            raise HTTPError(503, "Dashboard password not configured")
+        user, pw = "", ""
+        if auth_header and auth_header.lower().startswith("basic "):
+            try:
+                user, _, pw = base64.b64decode(auth_header[6:]).decode().partition(":")
+            except (binascii.Error, UnicodeDecodeError):
+                pass
+        if not secrets.compare_digest(pw.encode(), self.s.dashboard_password.encode()):
+            raise HTTPError(401, "Login required", {"WWW-Authenticate": 'Basic realm="kalshi-agent"'})
+        return user or "user"
 
-    @app.get("/api/signals")
-    def signals(user: str = Depends(auth)):
-        return state.recent_signals(database)
+    def overview(self, user: str) -> dict[str, Any]:
+        return {
+            "status": state.status(self.db, self.s),
+            "markets": state.markets(self.db, self.s),
+            "gates": state.trade_gates(self.db, self.s),
+            "performance": {m: state.performance(self.db, m) for m in ("PAPER", "DEMO", "LIVE")},
+            "costs": state.costs(self.s),
+            "data": state.data_stats(self.db),
+            "events": state.events(self.db, 25),
+            "crypto": {sym: state.crypto_series(self.db, sym, 60) for sym in self.s.symbols},
+        }
 
-    @app.get("/api/research")
-    def research(user: str = Depends(auth)):
-        return state.research(database)
+    def post(self, path: str, user: str) -> dict[str, Any]:
+        if path == "/api/kill":
+            engage_kill(self.db, f"dashboard:{user}", "kill button pressed")
+            return {"ok": True}
+        if path == "/api/unkill":
+            release_kill(self.db, f"dashboard:{user}")
+            return {"ok": True, "note": "Only the dashboard kill was released. Config/file/env kills stay until removed."}
+        if path.startswith("/api/collector/"):
+            action = path.rsplit("/", 1)[1]
+            if action not in ("pause", "resume"):
+                raise HTTPError(400, "action must be pause or resume")
+            self.db.set_control("collector", "paused" if action == "pause" else "running", f"dashboard:{user}")
+            self.db.log_event("dashboard", "info", f"Collector {action}d by {user}")
+            return {"ok": True}
+        raise HTTPError(404, "not found")
 
-    @app.get("/api/health")
-    def health(user: str = Depends(auth)):
-        return state.status(database, s)["health"] or {"overall": "unknown", "checks": []}
+    def handle(self, method: str, path: str, auth_header: str | None) -> tuple[int, str, bytes]:
+        """Returns (status, content_type, body). Raises HTTPError for errors."""
+        path = path.split("?", 1)[0]
+        user = self.authenticate(auth_header)
+        if method == "GET" and path in ("/", "/index.html"):
+            return 200, "text/html; charset=utf-8", (STATIC / "index.html").read_bytes()
+        if method == "GET" and path in self.get_routes:
+            return 200, "application/json", json.dumps(self.get_routes[path](user), default=str).encode()
+        if method == "POST":
+            return 200, "application/json", json.dumps(self.post(path, user)).encode()
+        raise HTTPError(404, "not found")
 
-    @app.post("/api/kill")
-    def kill(user: str = Depends(auth)):
-        engage_kill(database, f"dashboard:{user}", "kill button pressed")
-        return {"ok": True}
 
-    @app.post("/api/unkill")
-    def unkill(user: str = Depends(auth)):
-        release_kill(database, f"dashboard:{user}")
-        return {"ok": True, "note": "Only the dashboard kill was released. Config/file/env kills stay until removed."}
+def make_handler(app: DashboardApp) -> type[BaseHTTPRequestHandler]:
+    class Handler(BaseHTTPRequestHandler):
+        server_version = "kalshi-agent"
 
-    @app.post("/api/collector/{action}")
-    def collector(action: str, user: str = Depends(auth)):
-        if action not in ("pause", "resume"):
-            raise HTTPException(400, "action must be pause or resume")
-        database.set_control("collector", "paused" if action == "pause" else "running", f"dashboard:{user}")
-        database.log_event("dashboard", "info", f"Collector {action}d by {user}")
-        return {"ok": True}
+        def _respond(self, status: int, ctype: str, body: bytes, extra: dict[str, str] | None = None) -> None:
+            self.send_response(status)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("Cache-Control", "no-store")
+            for k, v in (extra or {}).items():
+                self.send_header(k, v)
+            self.end_headers()
+            self.wfile.write(body)
 
-    @app.exception_handler(Exception)
-    async def errors(request: Request, exc: Exception):
-        return JSONResponse({"error": "internal error"}, status_code=500)
+        def _dispatch(self, method: str) -> None:
+            try:
+                status, ctype, body = app.handle(method, self.path, self.headers.get("Authorization"))
+                self._respond(status, ctype, body)
+            except HTTPError as e:
+                self._respond(e.status, "application/json", json.dumps({"error": e.message}).encode(), e.headers)
+            except Exception:
+                log.exception("Dashboard error on %s %s", method, self.path)
+                self._respond(500, "application/json", b'{"error": "internal error"}')
 
-    return app
+        def do_GET(self) -> None:  # noqa: N802
+            self._dispatch("GET")
+
+        def do_POST(self) -> None:  # noqa: N802
+            length = int(self.headers.get("Content-Length") or 0)
+            if length:
+                self.rfile.read(min(length, 10_000))
+            self._dispatch("POST")
+
+        def log_message(self, fmt: str, *args) -> None:  # keep the console quiet
+            pass
+
+    return Handler
+
+
+def create_server(settings: Settings | None = None, db: Database | None = None,
+                  port: int | None = None) -> ThreadingHTTPServer:
+    s = settings or load_settings()
+    database = db or open_db(s.db_path)
+    server = ThreadingHTTPServer((s.dashboard_host, s.dashboard_port if port is None else port),
+                                 make_handler(DashboardApp(s, database)))
+    server.daemon_threads = True
+    return server
+
+
+def serve_in_thread(server: ThreadingHTTPServer) -> threading.Thread:
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
+    return t
 
 
 def main() -> None:
-    import uvicorn
     s = load_settings()
-    if s.dashboard_host not in ("127.0.0.1", "localhost") and not s.dashboard_password:
-        raise SystemExit("Refusing to serve the dashboard publicly without DASHBOARD_PASSWORD set in .env")
-    uvicorn.run(create_app(s), host=s.dashboard_host, port=s.dashboard_port, log_level="warning")
+    if s.dashboard_host not in LOCAL_HOSTS and not s.dashboard_password:
+        raise SystemExit("Refusing to serve the dashboard beyond this computer without DASHBOARD_PASSWORD set in .env")
+    server = create_server(s)
+    print(f"Dashboard running at http://{s.dashboard_host}:{s.dashboard_port}")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
 
 
 if __name__ == "__main__":

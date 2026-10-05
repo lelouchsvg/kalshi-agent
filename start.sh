@@ -18,7 +18,12 @@ UV="$UV_INSTALL_DIR/uv"
 PY="$ROOT/.venv/bin/python"
 
 say()  { printf '\n\033[1;33m%s\033[0m\n' "$*"; }
-fail() { printf '\n\033[1;31m%s\033[0m\n' "$*"; echo "Details are in $ROOT/logs/setup.log"; read -r -p "Press Enter to close. " _; exit 1; }
+fail() {
+  printf '\n\033[1;31m%s\033[0m\n' "$*"
+  echo "---- last lines of logs/setup.log (send a screenshot of this to Claude) ----"
+  tail -15 logs/setup.log 2>/dev/null
+  read -r -p "Press Enter to close. " _; exit 1
+}
 
 if [ -f data/agent.pids ] && kill -0 $(head -1 data/agent.pids) 2>/dev/null; then
   say "The agent is already running. Opening the dashboard."
@@ -38,11 +43,17 @@ if [ ! -x "$PY" ]; then
 fi
 
 # 2. Libraries (re-installed only when requirements change)
-REQ_HASH=$(cat requirements.txt requirements-dev.txt | shasum | cut -d' ' -f1)
+REQ_HASH=$(cat requirements*.txt | shasum | cut -d' ' -f1)
 if [ "$(cat .runtime/req.hash 2>/dev/null)" != "$REQ_HASH" ]; then
   say "Installing the agent's libraries..."
+  echo "=== $(date) installing libraries (macOS $(sw_vers -productVersion 2>/dev/null)) ===" >>logs/setup.log
   "$UV" pip install --python "$PY" -r requirements-dev.txt >>logs/setup.log 2>&1 \
     || fail "Couldn't install the libraries."
+  # Optional extras: nice to have, never required.
+  for pkg in psutil cryptography; do
+    "$UV" pip install --python "$PY" --only-binary :all: "$pkg" >>logs/setup.log 2>&1 \
+      || echo "Optional library $pkg not available on this Mac; continuing without it." | tee -a logs/setup.log
+  done
   echo "$REQ_HASH" > .runtime/req.hash
 fi
 

@@ -14,8 +14,18 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ed25519, padding, rsa
+# `cryptography` is only needed once Kalshi API keys are used (demo/live phases),
+# so it is imported lazily and is an optional install.
+
+
+def _crypto():
+    try:
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import ed25519, padding, rsa
+    except ImportError as exc:  # pragma: no cover - depends on the machine
+        raise KeyFileError(
+            "The 'cryptography' library is needed for Kalshi API keys but is not installed") from exc
+    return hashes, serialization, ed25519, padding, rsa
 
 
 class KeyFileError(RuntimeError):
@@ -23,6 +33,7 @@ class KeyFileError(RuntimeError):
 
 
 def load_private_key(path: str | Path):
+    _, serialization, ed25519, _, rsa = _crypto()
     p = Path(path).expanduser()
     if not p.exists():
         raise KeyFileError(f"Private key file not found at {p}")
@@ -43,6 +54,7 @@ def signing_path(url_or_path: str) -> str:
 
 
 def sign(private_key, timestamp_ms: str, method: str, path: str) -> str:
+    hashes, _, ed25519, padding, _ = _crypto()
     message = f"{timestamp_ms}{method.upper()}{signing_path(path)}".encode()
     if isinstance(private_key, ed25519.Ed25519PrivateKey):
         sig = private_key.sign(message)

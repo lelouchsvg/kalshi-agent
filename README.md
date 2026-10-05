@@ -33,7 +33,7 @@ kalshi_agent/
   health.py          API, feeds, freshness, heartbeat, disk/mem/cpu, model, kill
   service.py         always-on collector (systemd)
   state.py           read-only views for dashboard/CLI (real rows only)
-  dashboard/         FastAPI + single-page dashboard
+  dashboard/         built-in web server (standard library) + single-page dashboard
   cli.py             ./kalshi status | markets | health | kill | ...
   db/schema.sql      all tables (SQLite now, Postgres-ready)
 start.sh / stop.sh  local launcher: private Python in .runtime/, tests must pass, auto-restart

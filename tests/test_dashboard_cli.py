@@ -1,46 +1,75 @@
 import base64
+import json
+import urllib.error
+import urllib.request
 
-from fastapi.testclient import TestClient
+import pytest
 
-from kalshi_agent.dashboard.server import create_app
+from kalshi_agent.dashboard.server import create_server, serve_in_thread
 from kalshi_agent.logging_setup import redact
 
 
-def _auth(pw):
-    return {"Authorization": "Basic " + base64.b64encode(f"zeke:{pw}".encode()).decode()}
+@pytest.fixture
+def dash(settings, db):
+    servers = []
+
+    def start():
+        srv = create_server(settings, db, port=0)
+        serve_in_thread(srv)
+        servers.append(srv)
+        return f"http://127.0.0.1:{srv.server_address[1]}"
+    yield start
+    for srv in servers:
+        srv.shutdown()
+        srv.server_close()
 
 
-def test_dashboard_requires_password(settings, db):
+def call(url, method="GET", pw=None):
+    req = urllib.request.Request(url, method=method, data=b"" if method == "POST" else None)
+    if pw is not None:
+        req.add_header("Authorization", "Basic " + base64.b64encode(f"zeke:{pw}".encode()).decode())
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status, r.read().decode()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode()
+
+
+def test_dashboard_requires_password_when_set(settings, dash):
     settings.dashboard_password = "s3cret"
-    c = TestClient(create_app(settings, db))
-    assert c.get("/api/overview").status_code == 401
-    assert c.get("/api/overview", headers=_auth("wrong")).status_code == 401
-    r = c.get("/api/overview", headers=_auth("s3cret"))
-    assert r.status_code == 200
-    body = r.json()
+    base = dash()
+    assert call(base + "/api/overview")[0] == 401
+    assert call(base + "/api/overview", pw="wrong")[0] == 401
+    status, text = call(base + "/api/overview", pw="s3cret")
+    assert status == 200
+    body = json.loads(text)
     assert body["status"]["effective_mode"] == "PAPER"
     assert body["status"]["live_trading_unlocked"] is False
     assert body["performance"]["PAPER"]["has_data"] is False
     assert body["costs"]["total_monthly_usd"] == 5.0
-    assert "s3cret" not in r.text
-    assert c.get("/", headers=_auth("s3cret")).status_code == 200
+    assert "s3cret" not in text
+    status, html = call(base + "/", pw="s3cret")
+    assert status == 200 and "Kalshi Agent" in html
 
 
-def test_dashboard_public_without_password_refused(settings, db):
+def test_dashboard_public_without_password_refused(settings, dash):
     settings.dashboard_host = "0.0.0.0"
-    c = TestClient(create_app(settings, db))
-    assert c.get("/api/overview").status_code == 503
+    base = dash().replace("0.0.0.0", "127.0.0.1")
+    assert call(base + "/api/overview")[0] == 503
 
 
-def test_dashboard_kill_and_pause(settings, db):
-    c = TestClient(create_app(settings, db))  # localhost, no password
-    assert c.post("/api/kill").json()["ok"]
-    assert c.get("/api/overview").json()["status"]["kill_switch"]["engaged"]
-    c.post("/api/unkill")
-    assert not c.get("/api/overview").json()["status"]["kill_switch"]["engaged"]
-    c.post("/api/collector/pause")
+def test_dashboard_local_no_password_kill_and_pause(settings, db, dash):
+    base = dash()
+    assert json.loads(call(base + "/api/kill", "POST")[1])["ok"]
+    assert json.loads(call(base + "/api/overview")[1])["status"]["kill_switch"]["engaged"]
+    call(base + "/api/unkill", "POST")
+    assert not json.loads(call(base + "/api/overview")[1])["status"]["kill_switch"]["engaged"]
+    call(base + "/api/collector/pause", "POST")
     assert db.get_control("collector") == "paused"
-    assert c.post("/api/collector/explode").status_code == 400
+    assert call(base + "/api/collector/explode", "POST")[0] == 400
+    assert call(base + "/api/nope")[0] == 404
+    for path in ("/api/trades", "/api/signals", "/api/research", "/api/health"):
+        assert call(base + path)[0] == 200, path
 
 
 def test_redaction():

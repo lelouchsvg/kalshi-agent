@@ -1,7 +1,2 @@
-requests>=2.31
-cryptography>=42
+requests>=2.28
 PyYAML>=6
-fastapi>=0.110
-uvicorn>=0.29
-psutil>=5.9
-websockets>=12

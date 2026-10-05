@@ -2,8 +2,14 @@ import base64
 import os
 
 import pytest
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ed25519, padding, rsa
+
+try:  # optional library: only needed once Kalshi API keys are used
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ed25519, padding, rsa
+    HAVE_CRYPTO = True
+except ImportError:
+    HAVE_CRYPTO = False
+needs_crypto = pytest.mark.skipif(not HAVE_CRYPTO, reason="cryptography not installed (optional)")
 
 from kalshi_agent import safety
 from kalshi_agent.kalshi.auth import KalshiSigner, KeyFileError, signing_path
@@ -27,6 +33,7 @@ def test_signing_path_strips_query_and_host():
     assert signing_path("/trade-api/v2/markets?status=open") == "/trade-api/v2/markets"
 
 
+@needs_crypto
 def test_rsa_pss_signature_verifies(tmp_path):
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     signer = KalshiSigner("kid", _write_key(tmp_path, key))
@@ -40,6 +47,7 @@ def test_rsa_pss_signature_verifies(tmp_path):
     assert "kid" not in repr(signer) or "…" in repr(signer)
 
 
+@needs_crypto
 def test_ed25519_signature_verifies(tmp_path):
     key = ed25519.Ed25519PrivateKey.generate()
     signer = KalshiSigner("kid", _write_key(tmp_path, key))
@@ -48,6 +56,7 @@ def test_ed25519_signature_verifies(tmp_path):
                             b"1POST/trade-api/v2/portfolio/events/orders")
 
 
+@needs_crypto
 def test_world_readable_key_rejected(tmp_path):
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     with pytest.raises(KeyFileError):
@@ -131,6 +140,7 @@ def test_retries_on_429(monkeypatch):
     assert c.get_exchange_status()["trading_active"] is True
 
 
+@needs_crypto
 def test_v2_order_body_for_no_side(tmp_path, monkeypatch):
     monkeypatch.setattr(safety, "DEMO_TRADING_UNLOCKED", True)
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
