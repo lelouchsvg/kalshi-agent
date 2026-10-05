@@ -1,0 +1,8 @@
+[Unit]
+Description=Back up the Kalshi agent database
+
+[Service]
+Type=oneshot
+User=kalshi
+WorkingDirectory=/home/kalshi/kalshi-agent
+ExecStart=/home/kalshi/kalshi-agent/deploy/backup.sh

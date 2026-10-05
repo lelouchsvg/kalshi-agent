@@ -1,0 +1,68 @@
+# Kalshi agent settings. Safe to edit. Secrets never go in this file (they live in .env).
+#
+# Changes here take effect the next time the agent restarts. The dashboard shows
+# the values currently in force.
+
+trading_mode: PAPER          # WATCH | PAPER | BACKTEST | DEMO | LIVE  (LIVE is locked)
+kill_switch: false           # true = stop all trading immediately
+
+# Which Kalshi environment to read from. "prod" for real market data (read-only in
+# PAPER), "demo" for Kalshi's fake-money test exchange.
+kalshi_env: prod
+
+symbols: [BTC, ETH, SOL]
+
+# Kalshi series for each symbol. If a ticker is wrong or changes, the agent also
+# auto-detects 15-minute crypto series from Kalshi's series list.
+series:
+  BTC: KXBTC15M
+  ETH: KXETH15M
+  SOL: KXSOL15M
+
+risk:
+  max_position_size: 5          # contracts per market
+  max_order_size: 5             # contracts per order
+  max_contract_exposure: 20     # contracts across all markets
+  max_daily_loss: 25.0          # dollars
+  max_drawdown: 50.0            # dollars from peak
+  max_open_positions: 3
+  max_consecutive_losses: 5
+  max_market_exposure: 10.0     # dollars at risk in one market
+  max_slippage: 0.02            # dollars per contract
+  min_edge: 0.04                # required edge after fees and costs (4 cents per $1)
+  max_spread: 0.06              # skip markets with a wider bid/ask spread
+
+paper:
+  starting_balance: 1000.0
+
+model:
+  version: NONE                 # no model exists yet; system will PASS
+
+collection:
+  discovery_interval_s: 60
+  snapshot_interval_s: 10
+  crypto_interval_s: 5
+  health_interval_s: 30
+  orderbook_depth: 10
+  max_requests_per_second: 5    # well under Kalshi's basic tier limit
+
+health:
+  max_data_age_s: 60            # older market data = stale = no trading
+  max_heartbeat_age_s: 90
+  max_disk_pct: 90
+  max_mem_pct: 90
+
+crypto_provider: coinbase       # coinbase | kraken
+
+dashboard:
+  host: 127.0.0.1
+  port: 8080
+
+# Estimated monthly costs shown on the dashboard. Update when real bills arrive.
+costs:
+  - {item: "VPS (small Linux server)", monthly_usd: 5.00, note: "estimate; confirm on provider invoice"}
+  - {item: "Kalshi market data API", monthly_usd: 0.00, note: "free"}
+  - {item: "Crypto price data (Coinbase public API)", monthly_usd: 0.00, note: "free"}
+  - {item: "GitHub private repo", monthly_usd: 0.00, note: "free"}
+  - {item: "HTTPS certificate (Let's Encrypt)", monthly_usd: 0.00, note: "free"}
+  - {item: "LLM research agent", monthly_usd: 0.00, note: "not enabled yet (Phase 6)"}

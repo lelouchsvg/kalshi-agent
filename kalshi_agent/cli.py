@@ -1,0 +1,135 @@
+"""Plain-English command interface:  ./kalshi <command>
+
+  status       what the system is doing right now
+  health       detailed health checks
+  markets      live 15-minute markets
+  signals      latest signals and why
+  trades       recent trades
+  performance  P&L by mode (PAPER / DEMO / LIVE kept separate)
+  research     models, experiments, backtests
+  costs        estimated monthly running cost
+  start        resume data collection
+  stop         pause data collection
+  kill         engage the emergency kill switch
+  unkill       release the dashboard kill switch
+  discover     scan Kalshi once and print what was found
+  paper        start paper trading (Phase 5)
+  backtest     run a backtest (Phase 4)
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from datetime import datetime
+
+from . import state
+from .config import load_settings
+from .db import open_db
+from .safety import engage_kill, release_kill
+
+
+def _t(ms):
+    return datetime.fromtimestamp(ms / 1000).strftime("%Y-%m-%d %H:%M:%S") if ms else "—"
+
+
+def _c(v):
+    return "—" if v is None else f"{round(v * 100)}¢"
+
+
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(prog="kalshi", description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("command", nargs="?", default="status")
+    p.add_argument("--json", action="store_true", help="machine-readable output")
+    a = p.parse_args(argv)
+    s = load_settings()
+    db = open_db(s.db_path)
+    cmd = a.command.lower()
+
+    def out(obj, text):
+        print(json.dumps(obj, indent=2, default=str) if a.json else text)
+
+    if cmd == "status":
+        st = state.status(db, s)
+        h = st["health"] or {}
+        lines = [
+            f"Phase {st['phase']}: {st['phase_note']}",
+            f"Mode:         {st['effective_mode']}" + (f" (requested {st['requested_mode']}, blocked by {', '.join(st['mode_blocked_by'])})" if st["mode_blocked_by"] else ""),
+            f"Collector:    {'ONLINE' if st['online'] else 'OFFLINE'}{' (paused)' if st['collector_paused'] else ''}",
+            f"Health:       {h.get('overall', 'not run yet')}  trading allowed: {h.get('trading_allowed', False)}",
+            f"Kill switch:  {'ENGAGED via ' + ', '.join(st['kill_switch']['sources']) if st['kill_switch']['engaged'] else 'off'}",
+            f"LIVE trading: {'unlocked' if st['live_trading_unlocked'] else 'locked'}",
+            f"Kalshi env:   {st['kalshi_env']}   credentials: {'configured' if st['credentials_configured'] else 'not needed yet'}",
+            f"Model:        {st['model_version']}",
+        ]
+        out(st, "\n".join(lines))
+    elif cmd == "health":
+        st = state.status(db, s)["health"]
+        if not st:
+            out({}, "Health check has not run yet (the collector runs it every 30 seconds).")
+        else:
+            out(st, f"Overall: {st['overall']}\n" + "\n".join(
+                f"  [{c['status']:>8}] {c['name']:<24} {c['detail']}" for c in st["checks"]))
+    elif cmd == "markets":
+        ms = state.markets(db, s)
+        text = "\n".join(
+            f"{m['symbol']:<4} {m['ticker']:<32} strike {m['floor_strike'] or m['cap_strike'] or '—':<12} "
+            f"yes {_c(m['yes_bid'])}/{_c(m['yes_ask'])}  spread {_c(m['spread'])}  "
+            f"{int(m['seconds_to_close'] or 0)//60}m left  {m['signal']}" for m in ms) or "No live markets stored yet."
+        out(ms, text)
+    elif cmd == "signals":
+        rows = state.recent_signals(db)
+        out(rows, "\n".join(f"{_t(r['ts_ms'])} {r['ticker']} {r['action']} [{r['reason_code']}] {r['explanation']}"
+                            for r in rows) or "No signals yet. The signal engine arrives in Phase 5; until then every decision is PASS.")
+    elif cmd == "trades":
+        rows = state.recent_trades(db)
+        out(rows, "\n".join(f"{_t(r['entry_ms'])} [{r['mode']}] {r['ticker']} {r['side']} x{r['count']} "
+                            f"@{_c(r['entry_price'])} pnl {r['pnl']}  {r['reason'] or ''}" for r in rows) or "No trades yet.")
+    elif cmd in ("performance", "pnl"):
+        perf = {m: state.performance(db, m) for m in ("PAPER", "DEMO", "LIVE")}
+        lines = []
+        for m, pr in perf.items():
+            if not pr["has_data"]:
+                lines.append(f"{m}: {pr['message']}")
+            else:
+                lines.append(f"{m}: total ${pr['total_pnl']:.2f} | today ${pr['daily_pnl']:.2f} | "
+                             f"{pr['n_trades']} trades | win rate {pr['win_rate']:.1%} | max drawdown ${pr['max_drawdown']:.2f}")
+        out(perf, "\n".join(lines))
+    elif cmd == "research":
+        r = state.research(db)
+        out(r, f"Models: {len(r['models'])}  Experiments: {len(r['experiments'])}  Backtests: {len(r['backtests'])}\n"
+               "The research agent arrives in Phase 6.")
+    elif cmd == "costs":
+        c = state.costs(s)
+        out(c, "\n".join(f"  ${float(i['monthly_usd']):>6.2f}  {i['item']}" for i in c["items"]) +
+            f"\n  ${c['total_monthly_usd']:>6.2f}  estimated total per month")
+    elif cmd in ("start", "resume"):
+        db.set_control("collector", "running", "cli")
+        out({"ok": True}, "Data collection resumed.")
+    elif cmd in ("stop", "pause"):
+        db.set_control("collector", "paused", "cli")
+        out({"ok": True}, "Data collection paused. (Trading is also stopped; nothing trades in Phase 1.)")
+    elif cmd == "kill":
+        engage_kill(db, "cli", "kill command")
+        out({"ok": True}, "KILL SWITCH ENGAGED. No trading of any kind until released.")
+    elif cmd == "unkill":
+        release_kill(db, "cli")
+        out({"ok": True}, "Dashboard/CLI kill switch released. Config, file or env kill switches stay until removed.")
+    elif cmd == "discover":
+        from .discovery import discover
+        from .kalshi.client import build_client
+        found = discover(build_client(s), db, s.symbols, dict(s.series))
+        out({k: [m.ticker for m in v] for k, v in found.items()},
+            "\n".join(f"{k}: {len(v)} open market(s) " + ", ".join(m.ticker for m in v[:3]) for k, v in found.items()))
+    elif cmd in ("paper", "backtest"):
+        phase = 5 if cmd == "paper" else 4
+        out({"ok": False}, f"'{cmd}' is built in Phase {phase}. Right now the system collects data so it has something real to test on.")
+    else:
+        p.print_help()
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Friendly launcher:  ./kalshi status   ./kalshi markets   ./kalshi kill
+cd "$(dirname "$0")"
+PY=python3; [ -x .venv/bin/python ] && PY=.venv/bin/python
+exec "$PY" -m kalshi_agent.cli "$@"

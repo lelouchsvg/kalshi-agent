@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kalshi Agent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f3f1ec; --panel:#fffdf8; --ink:#1b1d22; --muted:#6b6f78; --line:#e3ded3;
+  --yes:#0f8b7d; --no:#d0533f; --pass:#c98a12; --ok:#2f9e5b; --warn:#c98a12; --crit:#cf3b2c;
+  --dial:#e9e4d8; --glow:rgba(201,138,18,.18);
+  --mono:"JetBrains Mono",ui-monospace,Menlo,monospace; --sans:"Space Grotesk",system-ui,-apple-system,sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0b0f14; --panel:#121820; --ink:#e8e6e1; --muted:#8b93a1; --line:#212a35;
+  --yes:#35c2ae; --no:#ff7a62; --pass:#f2b440; --ok:#4cc27a; --warn:#f2b440; --crit:#ff5a4a;
+  --dial:#1c2530; --glow:rgba(242,180,64,.15);
+}}
+:root[data-theme="dark"]{
+  --bg:#0b0f14; --panel:#121820; --ink:#e8e6e1; --muted:#8b93a1; --line:#212a35;
+  --yes:#35c2ae; --no:#ff7a62; --pass:#f2b440; --ok:#4cc27a; --warn:#f2b440; --crit:#ff5a4a;
+  --dial:#1c2530; --glow:rgba(242,180,64,.15);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 var(--sans);-webkit-font-smoothing:antialiased}
+.wrap{max-width:1320px;margin:0 auto;padding:20px 16px 60px}
+.mono{font-family:var(--mono)}
+.muted{color:var(--muted)}
+h2{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 12px;font-weight:500}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}
+.grid{display:grid;gap:16px}
+/* top bar */
+.top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+.brand{font-weight:700;font-size:20px;letter-spacing:-.01em;display:flex;align-items:center;gap:10px}
+.brand svg{width:28px;height:28px}
+.pill{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:13px;background:var(--panel)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.dot.ok{background:var(--ok);box-shadow:0 0 0 4px color-mix(in srgb,var(--ok) 20%,transparent)}
+.dot.warning{background:var(--warn)} .dot.critical{background:var(--crit)}
+.mode{font-family:var(--mono);font-weight:600;font-size:13px;padding:6px 12px;border-radius:8px;background:var(--ink);color:var(--bg)}
+.spacer{flex:1}
+button{font:inherit;cursor:pointer;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:8px 14px}
+button:hover{border-color:var(--muted)}
+button.kill{background:var(--crit);border-color:var(--crit);color:#fff;font-weight:700;letter-spacing:.04em}
+button.kill.engaged{background:transparent;color:var(--crit)}
+.phase{border-left:3px solid var(--pass);padding:10px 14px;background:var(--glow);border-radius:0 10px 10px 0;margin-bottom:16px;font-size:14px}
+/* verdict + gates */
+.hero{grid-template-columns:minmax(260px,340px) 1fr}
+.verdict{display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:6px;position:relative;overflow:hidden}
+.verdict .word{font-family:var(--mono);font-size:64px;font-weight:600;line-height:1;color:var(--pass);letter-spacing:-.02em}
+.verdict .word.buy{color:var(--yes)}
+.verdict::after{content:"";position:absolute;right:-60px;top:-60px;width:200px;height:200px;border-radius:50%;background:radial-gradient(var(--glow),transparent 70%)}
+.gates{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.gate{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;gap:10px;align-items:flex-start;min-height:64px}
+.lamp{flex:none;width:12px;height:12px;border-radius:50%;margin-top:4px;background:var(--dial);border:2px solid var(--line)}
+.lamp.on{background:var(--ok);border-color:var(--ok);box-shadow:0 0 10px color-mix(in srgb,var(--ok) 60%,transparent)}
+.gate b{display:block;font-size:13px;font-weight:500}
+.gate span{font-size:12px;color:var(--muted)}
+/* contract clocks */
+.clocks{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
+.clock{border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;align-items:center;gap:8px}
+.clock .sym{align-self:stretch;display:flex;justify-content:space-between;font-size:13px}
+.clock .sym b{font-size:15px}
+.clock svg{width:170px;height:170px}
+.clock .row{align-self:stretch;display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
+.clock .row .mono{color:var(--ink)}
+.sig{font-family:var(--mono);font-size:12px;padding:2px 8px;border-radius:6px;border:1px solid var(--pass);color:var(--pass)}
+.empty{padding:28px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:12px}
+/* perf */
+.perf{grid-template-columns:2fr 1fr}
+.tabs{display:flex;gap:6px;margin-bottom:12px}
+.tabs button{padding:5px 12px;font-size:12px;font-family:var(--mono)}
+.tabs button.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+.kpi{border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.kpi .v{font-family:var(--mono);font-size:20px;font-weight:600}
+.kpi .l{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
+.pos{color:var(--yes)} .neg{color:var(--no)}
+.chart{width:100%;height:200px;display:block}
+.spark{display:grid;gap:10px}
+.spark .s{display:grid;grid-template-columns:44px 1fr auto;gap:10px;align-items:center}
+.spark svg{width:100%;height:42px}
+/* tables + lists */
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-weight:500;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+.three{grid-template-columns:repeat(3,1fr)}
+.health{display:grid;grid-template-columns:1fr;gap:7px;font-size:13px}
+.health div{display:flex;gap:8px;align-items:center}
+.log{max-height:300px;overflow:auto;font-size:12px}
+.log div{padding:5px 0;border-bottom:1px solid var(--line);display:grid;grid-template-columns:70px 70px 1fr;gap:8px}
+.lvl-critical{color:var(--crit)} .lvl-warning{color:var(--warn)} .lvl-error{color:var(--crit)}
+.cost{display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px solid var(--line)}
+.cost.total{font-weight:700;border-bottom:none;font-size:15px}
+.foot{margin-top:18px;font-size:12px;color:var(--muted);text-align:center}
+@media (max-width:900px){
+  .hero,.perf,.three{grid-template-columns:1fr}
+  .gates{grid-template-columns:repeat(2,1fr)}
+  .verdict .word{font-size:48px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2.5" opacity=".25"/><path d="M16 3a13 13 0 0 1 11.3 6.5" fill="none" stroke="var(--pass)" stroke-width="2.5" stroke-linecap="round"/><path d="M16 16V8M16 16l5 3" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+      Kalshi Agent
+    </div>
+    <span class="mode" id="mode">…</span>
+    <span class="pill"><span class="dot" id="onlineDot"></span><span id="online">connecting</span></span>
+    <span class="pill"><span class="dot" id="healthDot"></span><span id="healthTxt">health</span></span>
+    <span class="pill mono" id="live">LIVE: locked</span>
+    <div class="spacer"></div>
+    <button id="pauseBtn">Pause data</button>
+    <button class="kill" id="killBtn">KILL SWITCH</button>
+  </div>
+
+  <div class="phase" id="phase">Loading…</div>
+
+  <div class="grid hero">
+    <div class="panel verdict">
+      <h2>Current decision</h2>
+      <div class="word" id="verdict">PASS</div>
+      <div class="muted" id="verdictWhy">Waiting for data</div>
+    </div>
+    <div class="panel">
+      <h2>Trade gate: all eight must light up before any trade</h2>
+      <div class="gates" id="gates"></div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:16px">
+    <h2>Live 15-minute markets</h2>
+    <div class="clocks" id="clocks"></div>
+  </div>
+
+  <div class="grid perf" style="margin-top:16px">
+    <div class="panel">
+      <h2>Profit &amp; loss</h2>
+      <div class="tabs" id="perfTabs"></div>
+      <div id="perfBody"></div>
+    </div>
+    <div class="panel">
+      <h2>Underlying prices, last hour</h2>
+      <div class="spark" id="sparks"></div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:16px">
+    <h2>Recent trades</h2>
+    <div id="trades"></div>
+  </div>
+
+  <div class="grid three" style="margin-top:16px">
+    <div class="panel"><h2>System health</h2><div class="health" id="health"></div></div>
+    <div class="panel"><h2>Research &amp; models</h2><div id="research"></div></div>
+    <div class="panel"><h2>Monthly running cost</h2><div id="costs"></div></div>
+  </div>
+
+  <div class="grid three" style="margin-top:16px">
+    <div class="panel" style="grid-column:span 2"><h2>Activity log</h2><div class="log" id="log"></div></div>
+    <div class="panel"><h2>Data collected</h2><div id="data"></div></div>
+  </div>
+
+  <div class="foot" id="foot"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const money = v => v == null ? "—" : (v < 0 ? "−$" : "$") + Math.abs(v).toFixed(2);
+const pct = v => v == null ? "—" : (v * 100).toFixed(1) + "%";
+const cents = v => v == null ? "—" : Math.round(v * 100) + "¢";
+const ago = ms => { const s = (Date.now() - ms) / 1000; return s < 60 ? Math.round(s) + "s ago" : s < 3600 ? Math.round(s/60) + "m ago" : Math.round(s/3600) + "h ago"; };
+const hhmm = ms => new Date(ms).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+const fmtPrice = p => p == null ? "—" : p >= 1000 ? p.toLocaleString(undefined, {maximumFractionDigits: 0}) : p.toLocaleString(undefined, {maximumFractionDigits: 2});
+let perfMode = "PAPER", last = null;
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}
+
+function arc(cx, cy, r, a0, a1) {
+  const p = a => [cx + r * Math.sin(a), cy - r * Math.cos(a)];
+  const [x0, y0] = p(a0), [x1, y1] = p(a1);
+  return `M${x0} ${y0} A${r} ${r} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${x1} ${y1}`;
+}
+
+/* Contract clock: outer ring = time elapsed in the 15-minute window.
+   Inner ring = where the market prices YES (bid..ask band).
+   Marker on the inner ring = model probability once a model exists. */
+function clock(m) {
+  const total = m.close_ms && m.open_ms ? (m.close_ms - m.open_ms) : 900000;
+  const left = Math.max(0, (m.seconds_to_close ?? 0) * 1000);
+  const frac = Math.min(1, Math.max(0, 1 - left / total));
+  const T = 2 * Math.PI, c = 85;
+  let svg = `<svg viewBox="0 0 170 170" role="img" aria-label="${esc(m.symbol)} market clock">
+    <circle cx="${c}" cy="${c}" r="74" fill="none" stroke="var(--dial)" stroke-width="8"/>`;
+  if (frac > 0.001) svg += `<path d="${arc(c, c, 74, 0, Math.max(0.01, frac * T - 0.0001))}" fill="none" stroke="var(--ink)" stroke-width="8" stroke-linecap="round" opacity=".85"/>`;
+  for (let i = 0; i < 15; i++) { const a = i / 15 * T; svg += `<line x1="${c + 62*Math.sin(a)}" y1="${c - 62*Math.cos(a)}" x2="${c + (i % 5 ? 65 : 59)*Math.sin(a)}" y2="${c - (i % 5 ? 65 : 59)*Math.cos(a)}" stroke="var(--muted)" stroke-width="${i % 5 ? 1 : 2}"/>`; }
+  svg += `<circle cx="${c}" cy="${c}" r="50" fill="none" stroke="var(--dial)" stroke-width="10"/>`;
+  if (m.yes_bid != null && m.yes_ask != null && m.yes_ask > m.yes_bid) {
+    svg += `<path d="${arc(c, c, 50, m.yes_bid * T, m.yes_ask * T)}" fill="none" stroke="var(--yes)" stroke-width="10"/>`;
+  } else if (m.last_price != null) {
+    svg += `<path d="${arc(c, c, 50, Math.max(0, m.last_price * T - .04), m.last_price * T + .04)}" fill="none" stroke="var(--yes)" stroke-width="10"/>`;
+  }
+  if (m.model_p_yes != null) { const a = m.model_p_yes * T; svg += `<circle cx="${c + 50*Math.sin(a)}" cy="${c - 50*Math.cos(a)}" r="6" fill="var(--pass)" stroke="var(--panel)" stroke-width="2"/>`; }
+  const mm = Math.floor(left / 60000), ss = Math.floor(left / 1000) % 60;
+  svg += `<text x="${c}" y="${c - 6}" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="22" font-weight="600" fill="var(--ink)">${m.yes_ask != null ? Math.round(m.yes_ask * 100) + "¢" : "—"}</text>
+    <text x="${c}" y="${c + 12}" text-anchor="middle" font-size="10" fill="var(--muted)" letter-spacing="1">YES ASK</text>
+    <text x="${c}" y="${c + 30}" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="12" fill="var(--muted)">${left > 0 ? mm + ":" + String(ss).padStart(2, "0") + " left" : esc(m.result ? "settled " + m.result.toUpperCase() : "closed")}</text></svg>`;
+  const u = m.underlying?.price, k = m.floor_strike ?? m.cap_strike;
+  const side = u != null && k != null ? (u > k ? `<span class="pos">above</span>` : `<span class="neg">below</span>`) : "";
+  return `<div class="clock">
+    <div class="sym"><b>${esc(m.symbol)}</b><span class="sig" title="${esc(m.signal_reason)}">${esc(m.signal)}</span></div>
+    ${svg}
+    <div class="row"><span>Strike</span><span class="mono">${k != null ? "$" + fmtPrice(k) : "—"}</span></div>
+    <div class="row"><span>Spot now</span><span class="mono">${u != null ? "$" + fmtPrice(u) : "—"} ${side}</span></div>
+    <div class="row"><span>Bid / ask</span><span class="mono">${cents(m.yes_bid)} / ${cents(m.yes_ask)}</span></div>
+    <div class="row"><span>Spread</span><span class="mono" style="color:${m.spread_ok ? "var(--ok)" : "var(--no)"}">${cents(m.spread)}</span></div>
+    <div class="row"><span>Model P(yes)</span><span class="mono">${m.model_p_yes != null ? pct(m.model_p_yes) : "no model"}</span></div>
+    <div class="row muted" style="font-size:11px"><span class="mono">${esc(m.ticker)}</span></div>
+  </div>`;
+}
+
+function lineChart(points, w, h, color, pad = 4) {
+  if (!points || points.length < 2) return "";
+  const xs = points.map(p => p[0]), ys = points.map(p => p[1]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const sx = x => pad + (x - x0) / ((x1 - x0) || 1) * (w - 2 * pad);
+  const sy = y => h - pad - (y - y0) / ((y1 - y0) || 1) * (h - 2 * pad);
+  const d = points.map((p, i) => (i ? "L" : "M") + sx(p[0]).toFixed(1) + " " + sy(p[1]).toFixed(1)).join("");
+  return `<path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+}
+
+function renderPerf() {
+  const all = last.performance;
+  $("perfTabs").innerHTML = ["PAPER", "DEMO", "LIVE"].map(m => `<button class="${m === perfMode ? "on" : ""}" data-m="${m}">${m}</button>`).join("");
+  $("perfTabs").querySelectorAll("button").forEach(b => b.onclick = () => { perfMode = b.dataset.m; renderPerf(); });
+  const p = all[perfMode];
+  if (!p.has_data) {
+    $("perfBody").innerHTML = `<div class="empty">${esc(p.message)}<br><span style="font-size:12px">P&amp;L appears here only from real ${perfMode.toLowerCase()} trades. Nothing is estimated or simulated for display.</span></div>`;
+    return;
+  }
+  const sign = v => v == null ? "" : v >= 0 ? "pos" : "neg";
+  $("perfBody").innerHTML = `
+    <svg class="chart" viewBox="0 0 800 200" preserveAspectRatio="none">${lineChart(p.equity_curve, 800, 200, "var(--yes)")}</svg>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Today</div><div class="v ${sign(p.daily_pnl)}">${money(p.daily_pnl)}</div></div>
+      <div class="kpi"><div class="l">This week</div><div class="v ${sign(p.weekly_pnl)}">${money(p.weekly_pnl)}</div></div>
+      <div class="kpi"><div class="l">Total</div><div class="v ${sign(p.total_pnl)}">${money(p.total_pnl)}</div></div>
+      <div class="kpi"><div class="l">Win rate</div><div class="v">${pct(p.win_rate)}</div></div>
+      <div class="kpi"><div class="l">Profit factor</div><div class="v">${p.profit_factor == null ? "—" : p.profit_factor.toFixed(2)}</div></div>
+      <div class="kpi"><div class="l">Max drawdown</div><div class="v neg">${money(-p.max_drawdown)}</div></div>
+    </div>
+    <div class="muted" style="font-size:12px;margin-top:8px">${p.n_trades} ${esc(p.label)} · fees ${money(p.fees)}</div>`;
+}
+
+function render(d) {
+  last = d;
+  const s = d.status;
+  $("mode").textContent = s.effective_mode + (s.requested_mode !== s.effective_mode ? ` (asked ${s.requested_mode})` : "");
+  $("onlineDot").className = "dot " + (s.online ? (s.collector_paused ? "warning" : "ok") : "critical");
+  $("online").textContent = s.online ? (s.collector_paused ? "paused" : "online") : "collector offline";
+  const h = s.health;
+  $("healthDot").className = "dot " + (h ? h.overall : "");
+  $("healthTxt").textContent = h ? "health: " + h.overall : "health: not run";
+  $("live").textContent = s.live_trading_unlocked ? "LIVE: unlocked" : "LIVE: locked";
+  $("phase").textContent = s.phase_note;
+  const k = s.kill_switch;
+  $("killBtn").textContent = k.engaged ? "KILLED · release" : "KILL SWITCH";
+  $("killBtn").classList.toggle("engaged", k.engaged);
+  $("pauseBtn").textContent = s.collector_paused ? "Resume data" : "Pause data";
+
+  const gates = d.gates, lit = gates.filter(g => g.ok).length, allOk = lit === gates.length;
+  $("verdict").textContent = allOk ? "READY" : "PASS";
+  $("verdict").classList.toggle("buy", allOk);
+  $("verdictWhy").textContent = allOk ? "Every gate is green." : `${lit} of ${gates.length} gates green. With no proven edge, the agent does not trade.`;
+  $("gates").innerHTML = gates.map(g => `<div class="gate"><span class="lamp ${g.ok ? "on" : ""}"></span><div><b>${esc(g.gate)}</b><span>${esc(g.why)}</span></div></div>`).join("");
+
+  const live = d.markets.filter(m => (m.seconds_to_close ?? 1) > -300);
+  $("clocks").innerHTML = live.length ? live.map(clock).join("") :
+    `<div class="empty">No open 15-minute markets found yet. ${s.online ? "Kalshi may be between windows; the next scan runs within a minute." : "The data collector is not running."}</div>`;
+
+  renderPerf();
+
+  $("sparks").innerHTML = Object.entries(d.crypto).map(([sym, pts]) => {
+    const lastP = pts.length ? pts[pts.length - 1][1] : null, first = pts.length ? pts[0][1] : null;
+    const ch = lastP != null && first ? (lastP / first - 1) : null;
+    return `<div class="s"><b>${esc(sym)}</b><svg viewBox="0 0 300 42" preserveAspectRatio="none">${lineChart(pts, 300, 42, ch == null ? "var(--muted)" : ch >= 0 ? "var(--yes)" : "var(--no)")}</svg>
+      <span class="mono" style="text-align:right">${lastP != null ? "$" + fmtPrice(lastP) : "—"}<br><span class="${ch >= 0 ? "pos" : "neg"}" style="font-size:11px">${ch == null ? "" : (ch >= 0 ? "+" : "") + (ch * 100).toFixed(2) + "%"}</span></span></div>`;
+  }).join("") || `<div class="empty">No price data yet.</div>`;
+
+  $("health").innerHTML = h ? h.checks.map(c => `<div title="${esc(c.detail)}"><span class="dot ${c.status}"></span>${esc(c.name.replace(/_/g, " "))}<span class="muted" style="font-size:11px;margin-left:auto">${esc(c.detail)}</span></div>`).join("") : `<div class="muted">Health check has not run yet.</div>`;
+
+  const c = d.costs;
+  $("costs").innerHTML = c.items.map(i => `<div class="cost"><span>${esc(i.item)}<br><span class="muted" style="font-size:11px">${esc(i.note || "")}</span></span><span class="mono">${money(i.monthly_usd)}</span></div>`).join("") +
+    `<div class="cost total"><span>Estimated total</span><span class="mono">${money(c.total_monthly_usd)}/mo</span></div>`;
+
+  $("log").innerHTML = d.events.length ? d.events.map(e => `<div><span class="muted mono">${hhmm(e.ts_ms)}</span><span class="lvl-${esc(e.level)}">${esc(e.source)}</span><span>${esc(e.message)}</span></div>`).join("") : `<div class="muted">No events yet.</div>`;
+
+  const st = d.data;
+  $("data").innerHTML = `<table>
+    <tr><td>Markets seen</td><td class="mono">${st.markets.toLocaleString()}</td></tr>
+    <tr><td>Settled markets</td><td class="mono">${st.settled_markets.toLocaleString()}</td></tr>
+    <tr><td>Market snapshots</td><td class="mono">${st.market_snapshots.toLocaleString()}</td></tr>
+    <tr><td>Order book snapshots</td><td class="mono">${st.orderbook_snapshots.toLocaleString()}</td></tr>
+    <tr><td>Crypto prices</td><td class="mono">${st.crypto_prices.toLocaleString()}</td></tr>
+    <tr><td>Collecting since</td><td class="mono">${st.collecting_since_ms ? new Date(st.collecting_since_ms).toLocaleString() : "—"}</td></tr></table>`;
+
+  $("foot").textContent = `v${s.version} · Phase ${s.phase} · Kalshi ${s.kalshi_env} · model ${s.model_version} · updated ${new Date().toLocaleTimeString()}`;
+}
+
+async function loadSide() {
+  try {
+    const [trades, research] = await Promise.all([api("/api/trades"), api("/api/research")]);
+    $("trades").innerHTML = trades.length ? `<table><tr><th>Mode</th><th>Market</th><th>Side</th><th>Entry</th><th>Exit</th><th>Model P</th><th>Market P</th><th>Edge</th><th>P&amp;L</th><th>Why</th></tr>${
+      trades.map(t => `<tr><td class="mono">${esc(t.mode)}</td><td class="mono">${esc(t.ticker)}</td><td>${esc(t.side)}</td><td class="mono">${cents(t.entry_price)}</td><td class="mono">${cents(t.exit_price)}</td><td class="mono">${pct(t.p_yes_at_entry)}</td><td class="mono">${pct(t.market_price_at_entry)}</td><td class="mono">${pct(t.edge_at_entry)}</td><td class="mono ${t.pnl >= 0 ? "pos" : "neg"}">${money(t.pnl)}</td><td>${esc(t.reason)}</td></tr>`).join("")}</table>`
+      : `<div class="empty">No trades yet. Paper trading starts in Phase 5, and only when the trade gate is fully green.</div>`;
+    const r = research;
+    $("research").innerHTML = (r.models.length ? r.models.map(m => `<div class="cost"><span class="mono">${esc(m.version)}</span><span>${esc(m.status)}</span></div>`).join("") : `<div class="muted" style="font-size:13px">No models yet. The first baseline model is trained in Phase 3, once enough settled markets are collected.</div>`) +
+      `<div class="muted" style="font-size:12px;margin-top:10px">Experiments: ${r.experiments.length} · Backtests: ${r.backtests.length}</div>`;
+  } catch (e) {}
+}
+
+async function refresh() {
+  try { render(await api("/api/overview")); }
+  catch (e) { $("online").textContent = "dashboard can't reach server"; $("onlineDot").className = "dot critical"; }
+}
+
+$("killBtn").onclick = async () => {
+  const engaged = last?.status.kill_switch.engaged;
+  if (!engaged && !confirm("Engage the kill switch? All trading stops immediately.")) return;
+  if (engaged && !confirm("Release the dashboard kill switch?")) return;
+  await api(engaged ? "/api/unkill" : "/api/kill", {method: "POST"});
+  refresh();
+};
+$("pauseBtn").onclick = async () => {
+  await api("/api/collector/" + (last?.status.collector_paused ? "resume" : "pause"), {method: "POST"});
+  refresh();
+};
+
+refresh(); loadSide();
+setInterval(refresh, 5000);
+setInterval(loadSide, 30000);
+</script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+[Unit]
+Description=Kalshi agent dashboard (localhost only; Caddy adds HTTPS in front)
+After=network-online.target
+
+[Service]
+User=kalshi
+WorkingDirectory=/home/kalshi/kalshi-agent
+ExecStart=/home/kalshi/kalshi-agent/.venv/bin/python -m kalshi_agent.dashboard.server
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+MemoryMax=300M
+
+[Install]
+WantedBy=multi-user.target
