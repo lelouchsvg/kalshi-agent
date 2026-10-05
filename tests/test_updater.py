@@ -103,6 +103,7 @@ def test_failed_tests_keep_current_version(root, settings):
                         do_restart=lambda r: pytest.fail("must not restart"))
     assert out["state"] == "error" and "1 failed" in out["message"]
     assert not (root / "kalshi_agent" / "new_module.py").exists()
+    assert not (root / "data" / "update_staging").exists()   # never left behind for pytest to trip on
 
 
 def test_token_problems_explained(root, settings):

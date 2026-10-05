@@ -219,11 +219,13 @@ def check(settings: Settings, root: Path = ROOT, http=requests, tests=run_tests,
         return {**status, "state": "installed", "installed": sha,
                 "message": f"Installed version {sha[:7]} ({summary}). Restarting."}
     except UpdateError as exc:
+        shutil.rmtree(root / "data" / "update_staging", ignore_errors=True)
         msg = str(exc)
         if status.get("latest") and ("safety tests" in msg or "manual install" in msg):
             _rejected(root, {"sha": status["latest"], "message": msg})
         return {**status, "state": "error", "message": msg}
     except requests.RequestException:
+        shutil.rmtree(root / "data" / "update_staging", ignore_errors=True)
         return {**status, "state": "offline", "message": "Couldn't reach GitHub; will try again later."}
 
 
