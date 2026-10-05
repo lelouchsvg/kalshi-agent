@@ -10,8 +10,17 @@ SRC="$(cd "$(dirname "$0")" && pwd)"
 TARGET="${1:-}"
 if [ -z "$TARGET" ]; then
   # Find the copy that is already running/collecting: it has a data/kalshi_agent.db.
-  for cand in "$HOME/kalshi-agent" "$HOME/Desktop/kalshi-agent" "$HOME/Documents/kalshi-agent" \
-              "$HOME"/Downloads/kalshi-agent*; do
+  # First ask macOS where the running agent lives, then look in the usual places.
+  RUNNING=""
+  if command -v lsof >/dev/null 2>&1; then
+    for pid in $(pgrep -f run_forever.sh 2>/dev/null || true); do
+      d="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)"
+      case "$d" in *"/.Trash/"*|"") ;; *) RUNNING="$d"; break ;; esac
+    done
+  fi
+  CANDS=("$HOME/kalshi-agent" "$HOME/Desktop/kalshi-agent" "$HOME/Documents/kalshi-agent" "$HOME"/Downloads/kalshi-agent*)
+  if [ -n "$RUNNING" ]; then CANDS=("$RUNNING" "${CANDS[@]}"); fi
+  for cand in "${CANDS[@]}"; do
     c="$(cd "$cand" 2>/dev/null && pwd)" || continue
     if [ "$c" != "$SRC" ] && [ -f "$c/data/kalshi_agent.db" ]; then TARGET="$c"; break; fi
   done
@@ -32,14 +41,17 @@ if [ ! -f "$TARGET/start.sh" ]; then
     fail "Couldn't find your agent at $TARGET. Drag in the old kalshi-agent folder (the one with a data folder inside)."
   fi
   # No existing install anywhere: make this copy the agent, in the home folder.
+  # (A ~/kalshi-agent holding only secrets/ or .env is fine: those are kept.)
   TARGET="$HOME/kalshi-agent"
-  if [ -e "$TARGET" ]; then
-    fail "$TARGET exists but isn't a working agent. Rename or remove it, then run this again."
-  fi
   say "No existing agent found. Installing a fresh copy at $TARGET..."
   pkill -f run_forever.sh 2>/dev/null || true
   pkill -f "kalshi_agent" 2>/dev/null || true
-  cp -Rp "$SRC" "$TARGET" || fail "Copying failed."
+  mkdir -p "$TARGET"
+  for item in "$SRC"/* "$SRC"/.[!.]*; do
+    [ -e "$item" ] || continue
+    case "$(basename "$item")" in .env|secrets|data|logs) continue ;; esac
+    cp -Rp "$item" "$TARGET/" || fail "Copying failed."
+  done
   exec bash "$TARGET/start.sh"
 fi
 
@@ -71,6 +83,17 @@ for item in "$SRC"/* "$SRC"/.[!.]*; do
   esac
   cp -Rp "$item" "$TARGET/" || fail "Copying failed. Your data is untouched."
 done
+
+# A key saved by hand into ~/kalshi-agent while the agent lives elsewhere: bring it along.
+HOMEDIR="$HOME/kalshi-agent"
+if [ "$TARGET" != "$HOMEDIR" ] && [ ! -f "$TARGET/.env" ] && [ -s "$HOMEDIR/secrets/kalshi.key" ] && [ -f "$HOMEDIR/.env" ]; then
+  say "Moving your Kalshi API key into the agent folder..."
+  mkdir -p "$TARGET/secrets" && chmod 700 "$TARGET/secrets"
+  cp -p "$HOMEDIR/secrets/kalshi.key" "$TARGET/secrets/kalshi.key" && chmod 600 "$TARGET/secrets/kalshi.key"
+  grep -v '^KALSHI_PRIVATE_KEY_PATH=' "$HOMEDIR/.env" > "$TARGET/.env" || true
+  echo "KALSHI_PRIVATE_KEY_PATH=$TARGET/secrets/kalshi.key" >> "$TARGET/.env"
+  chmod 600 "$TARGET/.env"
+fi
 
 say "Starting the updated agent (it runs its safety tests first)..."
 exec bash "$TARGET/start.sh"
