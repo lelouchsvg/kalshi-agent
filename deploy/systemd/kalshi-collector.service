@@ -1,0 +1,18 @@
+[Unit]
+Description=Kalshi agent data collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=kalshi
+WorkingDirectory=/home/kalshi/kalshi-agent
+ExecStart=/home/kalshi/kalshi-agent/.venv/bin/python -m kalshi_agent.service
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+MemoryMax=600M
+
+[Install]
+WantedBy=multi-user.target

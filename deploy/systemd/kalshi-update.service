@@ -1,0 +1,8 @@
+[Unit]
+Description=Pull tested updates from GitHub
+
+[Service]
+Type=oneshot
+User=kalshi
+WorkingDirectory=/home/kalshi/kalshi-agent
+ExecStart=/home/kalshi/kalshi-agent/deploy/update.sh

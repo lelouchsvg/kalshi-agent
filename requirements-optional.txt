@@ -1,0 +1,3 @@
+# Nice to have; the agent runs without them.
+psutil>=5.9        # memory/CPU numbers in the health panel
+cryptography>=41   # only needed once Kalshi API keys are used (demo phase)

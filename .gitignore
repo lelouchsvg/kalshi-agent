@@ -1,0 +1,17 @@
+# secrets: never commit
+.env
+*.pem
+*.key
+secrets/
+# runtime data
+data/
+logs/
+backups/
+models/*.pkl
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+# mac
+.DS_Store

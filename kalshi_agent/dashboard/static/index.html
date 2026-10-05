@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kalshi Agent</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231b1d22'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23fff' stroke-width='2.5' opacity='.28'/%3E%3Cpath d='M16 7a9 9 0 0 1 9 9' fill='none' stroke='%23f2b440' stroke-width='2.5' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='16' r='2' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f3f1ec; --panel:#fffdf8; --ink:#1b1d22; --muted:#6b6f78; --line:#e3ded3;
+  --yes:#0f8b7d; --no:#d0533f; --pass:#c98a12; --ok:#2f9e5b; --warn:#c98a12; --crit:#cf3b2c;
+  --dial:#e9e4d8; --glow:rgba(201,138,18,.18);
+  --mono:"JetBrains Mono",ui-monospace,Menlo,monospace; --sans:"Space Grotesk",system-ui,-apple-system,sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0b0f14; --panel:#121820; --ink:#e8e6e1; --muted:#8b93a1; --line:#212a35;
+  --yes:#35c2ae; --no:#ff7a62; --pass:#f2b440; --ok:#4cc27a; --warn:#f2b440; --crit:#ff5a4a;
+  --dial:#1c2530; --glow:rgba(242,180,64,.15);
+}}
+:root[data-theme="dark"]{
+  --bg:#0b0f14; --panel:#121820; --ink:#e8e6e1; --muted:#8b93a1; --line:#212a35;
+  --yes:#35c2ae; --no:#ff7a62; --pass:#f2b440; --ok:#4cc27a; --warn:#f2b440; --crit:#ff5a4a;
+  --dial:#1c2530; --glow:rgba(242,180,64,.15);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 var(--sans);-webkit-font-smoothing:antialiased}
+.wrap{max-width:1320px;margin:0 auto;padding:20px 16px 60px}
+.mono{font-family:var(--mono)}
+.muted{color:var(--muted)}
+h2{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 12px;font-weight:500}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}
+.grid{display:grid;gap:16px}
+/* top bar */
+.top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+.brand{font-weight:700;font-size:19px;letter-spacing:-.02em;display:flex;align-items:center;gap:10px}
+.brand svg{width:30px;height:30px;flex:none}
+.brand-sub{font-weight:400;color:var(--muted);margin-left:6px}
+.pill{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:13px;background:var(--panel)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.dot.ok{background:var(--ok);box-shadow:0 0 0 4px color-mix(in srgb,var(--ok) 20%,transparent)}
+.dot.warning{background:var(--warn)} .dot.critical{background:var(--crit)}
+.mode{font-family:var(--mono);font-weight:600;font-size:13px;padding:6px 12px;border-radius:8px;background:var(--ink);color:var(--bg)}
+.spacer{flex:1}
+button{font:inherit;cursor:pointer;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:8px 14px}
+button:hover{border-color:var(--muted)}
+button.kill{background:var(--crit);border-color:var(--crit);color:#fff;font-weight:700;letter-spacing:.04em}
+button.kill.engaged{background:transparent;color:var(--crit)}
+.phase{border-left:3px solid var(--pass);padding:10px 14px;background:var(--glow);border-radius:0 10px 10px 0;margin-bottom:16px;font-size:14px}
+/* verdict + gates */
+.hero{grid-template-columns:minmax(260px,340px) 1fr}
+.verdict{display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:6px;position:relative;overflow:hidden}
+.verdict .word{font-family:var(--mono);font-size:64px;font-weight:600;line-height:1;color:var(--pass);letter-spacing:-.02em}
+.verdict .word.buy{color:var(--yes)}
+.verdict::after{content:"";position:absolute;right:-60px;top:-60px;width:200px;height:200px;border-radius:50%;background:radial-gradient(var(--glow),transparent 70%)}
+.gates{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.gate{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;gap:10px;align-items:flex-start;min-height:64px}
+.lamp{flex:none;width:12px;height:12px;border-radius:50%;margin-top:4px;background:var(--dial);border:2px solid var(--line)}
+.lamp.on{background:var(--ok);border-color:var(--ok);box-shadow:0 0 10px color-mix(in srgb,var(--ok) 60%,transparent)}
+.gate b{display:block;font-size:13px;font-weight:500}
+.gate span{font-size:12px;color:var(--muted)}
+/* contract clocks */
+.clocks{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
+.clock{border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;align-items:center;gap:8px}
+.clock .sym{align-self:stretch;display:flex;justify-content:space-between;font-size:13px}
+.clock .sym b{font-size:15px}
+.clock svg{width:170px;height:170px}
+.clock .row{align-self:stretch;display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
+.clock .row .mono{color:var(--ink)}
+.sig{font-family:var(--mono);font-size:12px;padding:2px 8px;border-radius:6px;border:1px solid var(--pass);color:var(--pass)}
+.empty{padding:28px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:12px}
+/* perf */
+.perf{grid-template-columns:2fr 1fr}
+.tabs{display:flex;gap:6px;margin-bottom:12px}
+.tabs button{padding:5px 12px;font-size:12px;font-family:var(--mono)}
+.tabs button.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+.kpi{border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.kpi .v{font-family:var(--mono);font-size:20px;font-weight:600}
+.kpi .l{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
+.pos{color:var(--yes)} .neg{color:var(--no)}
+.chart{width:100%;height:200px;display:block}
+.spark{display:grid;gap:10px}
+.spark .s{display:grid;grid-template-columns:44px 1fr auto;gap:10px;align-items:center}
+.spark svg{width:100%;height:42px}
+/* tables + lists */
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-weight:500;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+.three{grid-template-columns:repeat(3,1fr)}
+.health{display:grid;grid-template-columns:1fr;gap:7px;font-size:13px}
+.health div{display:flex;gap:8px;align-items:center}
+.log{max-height:300px;overflow:auto;font-size:12px}
+.log div{padding:5px 0;border-bottom:1px solid var(--line);display:grid;grid-template-columns:70px 70px 1fr;gap:8px}
+.lvl-critical{color:var(--crit)} .lvl-warning{color:var(--warn)} .lvl-error{color:var(--crit)}
+.cost{display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px solid var(--line)}
+.cost.total{font-weight:700;border-bottom:none;font-size:15px}
+.feedrow{grid-template-columns:3fr 2fr}
+.feeds{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+.feed{border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:12px;display:grid;gap:3px}
+.feed b{font-size:13px;font-weight:500;display:flex;align-items:center;gap:8px}
+.feed .stat{font-family:var(--mono);color:var(--ink)}
+.feed .off{color:var(--muted)}
+.bar{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--dial);margin:4px 0 2px}
+.bar i{display:block;height:100%}
+.qrow{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:6px 0;border-bottom:1px solid var(--line)}
+.qrow:last-child{border-bottom:none}
+.crit{display:grid;grid-template-columns:16px 1fr;gap:8px;font-size:13px;padding:6px 0;border-bottom:1px solid var(--line)}
+.crit .bar{height:6px;margin-top:5px}
+.tag{font-family:var(--mono);font-size:10px;letter-spacing:.08em;padding:1px 6px;border-radius:4px;border:1px solid var(--line);color:var(--muted)}
+.foot{margin-top:18px;font-size:12px;color:var(--muted);text-align:center}
+.connect{display:grid;grid-template-columns:1fr 1.4fr;gap:20px;align-items:start}
+.connect label{display:block;font-size:12px;color:var(--muted);margin:0 0 4px}
+.connect input,.connect textarea{width:100%;font:13px/1.4 var(--mono);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 11px}
+.connect textarea{height:118px;resize:vertical}
+.connect input:focus,.connect textarea:focus{outline:2px solid var(--pass);outline-offset:1px}
+.connect ol{margin:0;padding-left:18px;font-size:13px;display:grid;gap:6px}
+button.primary{background:var(--ink);color:var(--bg);border-color:var(--ink);font-weight:500}
+.msg{font-size:13px;margin-top:8px} .msg.bad{color:var(--crit)} .msg.good{color:var(--ok)}
+.connected{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:14px}
+@media (max-width:900px){
+  .hero,.perf,.three,.feedrow,.connect{grid-template-columns:1fr}
+  .gates{grid-template-columns:repeat(2,1fr)}
+  .verdict .word{font-size:48px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <rect width="32" height="32" rx="8" fill="var(--ink)"/>
+        <circle cx="16" cy="16" r="9" fill="none" stroke="var(--bg)" stroke-width="2.5" opacity=".28"/>
+        <path d="M16 7a9 9 0 0 1 9 9" fill="none" stroke="var(--pass)" stroke-width="2.5" stroke-linecap="round"/>
+        <circle cx="16" cy="16" r="2" fill="var(--bg)"/>
+      </svg>
+      <span>Kalshi<span class="brand-sub">Agent</span></span>
+    </div>
+    <span class="mode" id="mode">…</span>
+    <span class="pill"><span class="dot" id="onlineDot"></span><span id="online">connecting</span></span>
+    <span class="pill"><span class="dot" id="healthDot"></span><span id="healthTxt">health</span></span>
+    <span class="pill mono" id="live">LIVE: locked</span>
+    <div class="spacer"></div>
+    <button id="pauseBtn">Pause data</button>
+    <button class="kill" id="killBtn">KILL SWITCH</button>
+  </div>
+
+  <div class="phase" id="phase">Loading…</div>
+
+  <div class="grid hero">
+    <div class="panel verdict">
+      <h2>Current decision</h2>
+      <div class="word" id="verdict">PASS</div>
+      <div class="muted" id="verdictWhy">Waiting for data</div>
+    </div>
+    <div class="panel">
+      <h2>Trade gate: all eight must light up before any trade</h2>
+      <div class="gates" id="gates"></div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:16px">
+    <h2>Live 15-minute markets</h2>
+    <div class="clocks" id="clocks"></div>
+  </div>
+
+  <div class="grid perf" style="margin-top:16px">
+    <div class="panel">
+      <h2>Profit &amp; loss</h2>
+      <div class="tabs" id="perfTabs"></div>
+      <div id="perfBody"></div>
+    </div>
+    <div class="panel">
+      <h2>Underlying prices, last hour</h2>
+      <div class="spark" id="sparks"></div>
+    </div>
+  </div>
+
+  <div class="grid perf" style="margin-top:16px">
+    <div class="panel"><h2>Open paper positions</h2><div id="positions"></div></div>
+    <div class="panel"><h2>Ready for real money?</h2><div id="readiness"></div></div>
+  </div>
+
+  <div class="panel" id="connectPanel" style="margin-top:16px">
+    <h2>Kalshi account</h2>
+    <div id="connectState"></div>
+    <div class="connect" id="connectForm" hidden>
+      <ol class="muted">
+        <li>On kalshi.com open <b>Account &amp; Security → API Keys → Create New API Key</b>.</li>
+        <li>Paste the <b>Key ID</b> and the whole <b>private key</b> here. If Kalshi downloaded a file, open it in TextEdit and copy everything.</li>
+        <li>Press <b>Save key</b>. It is stored only on this Mac (in the secrets folder, readable only by you) and is never shown again.</li>
+        <li>Paper trading stays on fake money. A key does not unlock real trading.</li>
+      </ol>
+      <form id="keyForm" autocomplete="off">
+        <label for="keyId">Key ID</label>
+        <input id="keyId" spellcheck="false" autocapitalize="off" placeholder="a1b2c3d4-e5f6-7890-…">
+        <label for="keyPem" style="margin-top:10px">Private key</label>
+        <textarea id="keyPem" spellcheck="false" autocapitalize="off" placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;…&#10;-----END RSA PRIVATE KEY-----"></textarea>
+        <div style="display:flex;gap:8px;margin-top:10px"><button class="primary" id="keySave" type="submit">Save key</button><button type="button" id="keyCancel" hidden>Cancel</button></div>
+        <div class="msg" id="keyMsg"></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="panel" id="updatePanel" style="margin-top:16px">
+    <h2>Automatic updates</h2>
+    <div id="updateState" class="connected"></div>
+    <div class="connect" id="tokenForm" hidden style="margin-top:14px">
+      <ol class="muted">
+        <li>On github.com open <b>Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token</b>.</li>
+        <li>Name it "kalshi agent updates", set <b>Repository access</b> to <b>Only select repositories → kalshi-agent</b>, and under <b>Permissions → Contents</b> pick <b>Read-only</b>.</li>
+        <li>Generate it, copy it, paste it here and press <b>Save token</b>. It stays on this Mac and can only read the code.</li>
+      </ol>
+      <form id="tokForm" autocomplete="off">
+        <label for="ghToken">GitHub token</label>
+        <input id="ghToken" type="password" spellcheck="false" autocapitalize="off" placeholder="github_pat_…">
+        <div style="display:flex;gap:8px;margin-top:10px"><button class="primary" id="tokSave" type="submit">Save token</button><button type="button" id="tokCancel" hidden>Cancel</button></div>
+        <div class="msg" id="tokMsg"></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="grid feedrow" style="margin-top:16px">
+    <div class="panel"><h2>Live data feeds</h2><div class="feeds" id="feeds"></div><div class="muted" id="clockline" style="font-size:12px;margin-top:10px"></div></div>
+    <div class="panel"><h2>Learning data: past markets</h2><div id="quality"><div class="muted">Loading…</div></div></div>
+  </div>
+
+  <div class="panel" style="margin-top:16px">
+    <h2>Recent trades</h2>
+    <div id="trades"></div>
+  </div>
+
+  <div class="grid three" style="margin-top:16px">
+    <div class="panel"><h2>System health</h2><div class="health" id="health"></div></div>
+    <div class="panel"><h2>Research &amp; models</h2><div id="research"></div></div>
+    <div class="panel"><h2>Monthly running cost</h2><div id="costs"></div></div>
+  </div>
+
+  <div class="grid three" style="margin-top:16px">
+    <div class="panel" style="grid-column:span 2"><h2>Activity log</h2><div class="log" id="log"></div></div>
+    <div class="panel"><h2>Data collected</h2><div id="data"></div></div>
+  </div>
+
+  <div class="foot" id="foot"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const money = v => v == null ? "—" : (v < 0 ? "−$" : "$") + Math.abs(v).toFixed(2);
+const pct = v => v == null ? "—" : (v * 100).toFixed(1) + "%";
+const cents = v => v == null ? "—" : Math.round(v * 100) + "¢";
+const ago = ms => { const s = (Date.now() - ms) / 1000; return s < 60 ? Math.round(s) + "s ago" : s < 3600 ? Math.round(s/60) + "m ago" : Math.round(s/3600) + "h ago"; };
+const hhmm = ms => new Date(ms).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+const fmtPrice = p => p == null ? "—" : p >= 1000 ? p.toLocaleString(undefined, {maximumFractionDigits: 0}) : p.toLocaleString(undefined, {maximumFractionDigits: 2});
+let perfMode = "PAPER", last = null;
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}
+
+function arc(cx, cy, r, a0, a1) {
+  const p = a => [cx + r * Math.sin(a), cy - r * Math.cos(a)];
+  const [x0, y0] = p(a0), [x1, y1] = p(a1);
+  return `M${x0} ${y0} A${r} ${r} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${x1} ${y1}`;
+}
+
+/* Contract clock: outer ring = time elapsed in the 15-minute window.
+   Inner ring = where the market prices YES (bid..ask band).
+   Marker on the inner ring = model probability once a model exists. */
+function clock(m) {
+  const total = m.close_ms && m.open_ms ? (m.close_ms - m.open_ms) : 900000;
+  const left = Math.max(0, (m.seconds_to_close ?? 0) * 1000);
+  const frac = Math.min(1, Math.max(0, 1 - left / total));
+  const T = 2 * Math.PI, c = 85;
+  let svg = `<svg viewBox="0 0 170 170" role="img" aria-label="${esc(m.symbol)} market clock">
+    <circle cx="${c}" cy="${c}" r="74" fill="none" stroke="var(--dial)" stroke-width="8"/>`;
+  if (frac > 0.001) svg += `<path d="${arc(c, c, 74, 0, Math.max(0.01, frac * T - 0.0001))}" fill="none" stroke="var(--ink)" stroke-width="8" stroke-linecap="round" opacity=".85"/>`;
+  for (let i = 0; i < 15; i++) { const a = i / 15 * T; svg += `<line x1="${c + 62*Math.sin(a)}" y1="${c - 62*Math.cos(a)}" x2="${c + (i % 5 ? 65 : 59)*Math.sin(a)}" y2="${c - (i % 5 ? 65 : 59)*Math.cos(a)}" stroke="var(--muted)" stroke-width="${i % 5 ? 1 : 2}"/>`; }
+  svg += `<circle cx="${c}" cy="${c}" r="50" fill="none" stroke="var(--dial)" stroke-width="10"/>`;
+  if (m.yes_bid != null && m.yes_ask != null && m.yes_ask > m.yes_bid) {
+    svg += `<path d="${arc(c, c, 50, m.yes_bid * T, m.yes_ask * T)}" fill="none" stroke="var(--yes)" stroke-width="10"/>`;
+  } else if (m.last_price != null) {
+    svg += `<path d="${arc(c, c, 50, Math.max(0, m.last_price * T - .04), m.last_price * T + .04)}" fill="none" stroke="var(--yes)" stroke-width="10"/>`;
+  }
+  if (m.model_p_yes != null) { const a = m.model_p_yes * T; svg += `<circle cx="${c + 50*Math.sin(a)}" cy="${c - 50*Math.cos(a)}" r="6" fill="var(--pass)" stroke="var(--panel)" stroke-width="2"/>`; }
+  const mm = Math.floor(left / 60000), ss = Math.floor(left / 1000) % 60;
+  svg += `<text x="${c}" y="${c - 6}" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="22" font-weight="600" fill="var(--ink)">${m.yes_ask != null ? Math.round(m.yes_ask * 100) + "¢" : "—"}</text>
+    <text x="${c}" y="${c + 12}" text-anchor="middle" font-size="10" fill="var(--muted)" letter-spacing="1">YES ASK</text>
+    <text x="${c}" y="${c + 30}" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="12" fill="var(--muted)">${left > 0 ? mm + ":" + String(ss).padStart(2, "0") + " left" : esc(m.result ? "settled " + m.result.toUpperCase() : "closed")}</text></svg>`;
+  const u = m.underlying?.price, k = m.floor_strike ?? m.cap_strike;
+  const ix = m.underlying?.index, ref = ix?.avg60 ?? u;
+  const side = ref != null && k != null ? (ref > k ? `<span class="pos">above</span>` : `<span class="neg">below</span>`) : "";
+  return `<div class="clock">
+    <div class="sym"><b>${esc(m.symbol)}</b><span class="sig" title="${esc(m.signal_reason)}">${esc(m.signal)}</span></div>
+    ${svg}
+    <div class="row"><span>Strike</span><span class="mono">${k != null ? "$" + fmtPrice(k) : "—"}</span></div>
+    <div class="row"><span>Spot now</span><span class="mono">${u != null ? "$" + fmtPrice(u) : "—"}</span></div>
+    <div class="row" title="Kalshi settles on the 60-second average of the CF Benchmarks index. This is our free stand-in built from ${ix ? ix.n_sources : 0} exchanges."><span>Index, 60s avg</span><span class="mono">${ix?.avg60 != null ? "$" + fmtPrice(ix.avg60) : "—"} ${side}</span></div>
+    <div class="row"><span>Bid / ask</span><span class="mono">${cents(m.yes_bid)} / ${cents(m.yes_ask)}</span></div>
+    <div class="row"><span>Spread</span><span class="mono" style="color:${m.spread_ok ? "var(--ok)" : "var(--no)"}">${cents(m.spread)}</span></div>
+    <div class="row"><span>Model P(yes)</span><span class="mono">${m.model_p_yes != null ? pct(m.model_p_yes) : "no model"}</span></div>
+    <div class="row muted" style="font-size:11px"><span class="mono">${esc(m.ticker)}</span></div>
+  </div>`;
+}
+
+function lineChart(points, w, h, color, pad = 4) {
+  if (!points || points.length < 2) return "";
+  const xs = points.map(p => p[0]), ys = points.map(p => p[1]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const sx = x => pad + (x - x0) / ((x1 - x0) || 1) * (w - 2 * pad);
+  const sy = y => h - pad - (y - y0) / ((y1 - y0) || 1) * (h - 2 * pad);
+  const d = points.map((p, i) => (i ? "L" : "M") + sx(p[0]).toFixed(1) + " " + sy(p[1]).toFixed(1)).join("");
+  return `<path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+}
+
+function renderPerf() {
+  const all = last.performance;
+  $("perfTabs").innerHTML = ["PAPER", "DEMO", "LIVE"].map(m => `<button class="${m === perfMode ? "on" : ""}" data-m="${m}">${m}</button>`).join("");
+  $("perfTabs").querySelectorAll("button").forEach(b => b.onclick = () => { perfMode = b.dataset.m; renderPerf(); });
+  const p = all[perfMode];
+  if (!p.has_data) {
+    $("perfBody").innerHTML = `<div class="empty">${esc(p.message)}<br><span style="font-size:12px">P&amp;L appears here only from real ${perfMode.toLowerCase()} trades. Nothing is estimated or simulated for display.</span></div>`;
+    return;
+  }
+  const sign = v => v == null ? "" : v >= 0 ? "pos" : "neg";
+  $("perfBody").innerHTML = `
+    <svg class="chart" viewBox="0 0 800 200" preserveAspectRatio="none">${lineChart(p.equity_curve, 800, 200, "var(--yes)")}</svg>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Today</div><div class="v ${sign(p.daily_pnl)}">${money(p.daily_pnl)}</div></div>
+      <div class="kpi"><div class="l">This week</div><div class="v ${sign(p.weekly_pnl)}">${money(p.weekly_pnl)}</div></div>
+      <div class="kpi"><div class="l">Total</div><div class="v ${sign(p.total_pnl)}">${money(p.total_pnl)}</div></div>
+      <div class="kpi"><div class="l">Win rate</div><div class="v">${pct(p.win_rate)}</div></div>
+      <div class="kpi"><div class="l">Profit factor</div><div class="v">${p.profit_factor == null ? "—" : p.profit_factor.toFixed(2)}</div></div>
+      <div class="kpi"><div class="l">Max drawdown</div><div class="v neg">${money(-p.max_drawdown)}</div></div>
+    </div>
+    <div class="muted" style="font-size:12px;margin-top:8px">${p.n_trades} ${esc(p.label)} · fees ${money(p.fees)}</div>`;
+}
+
+function render(d) {
+  last = d;
+  const s = d.status;
+  $("mode").textContent = s.effective_mode + (s.requested_mode !== s.effective_mode ? ` (asked ${s.requested_mode})` : "");
+  $("onlineDot").className = "dot " + (s.online ? (s.collector_paused ? "warning" : "ok") : "critical");
+  $("online").textContent = s.online ? (s.collector_paused ? "paused" : "online") : "collector offline";
+  const h = s.health;
+  $("healthDot").className = "dot " + (h ? h.overall : "");
+  $("healthTxt").textContent = h ? "health: " + h.overall : "health: not run";
+  $("live").textContent = s.live_trading_unlocked ? "LIVE: unlocked" : "LIVE: locked";
+  $("phase").textContent = s.phase_note;
+  const k = s.kill_switch;
+  $("killBtn").textContent = k.engaged ? "KILLED · release" : "KILL SWITCH";
+  $("killBtn").classList.toggle("engaged", k.engaged);
+  $("pauseBtn").textContent = s.collector_paused ? "Resume data" : "Pause data";
+
+  const gates = d.gates, lit = gates.filter(g => g.ok).length, allOk = lit === gates.length;
+  $("verdict").textContent = allOk ? "READY" : "PASS";
+  $("verdict").classList.toggle("buy", allOk);
+  const bought = d.markets.some(m => m.signal === "BUY");
+  $("verdict").textContent = bought ? "BUY" : allOk ? "READY" : "PASS";
+  $("verdict").classList.toggle("buy", bought || allOk);
+  $("verdictWhy").textContent = bought ? "Paper trade placed (fake money)." : allOk ? "Every gate is green." :
+    `${lit} of ${gates.length} gates green. Without an edge after fees, the agent passes.`;
+  $("gates").innerHTML = gates.map(g => `<div class="gate"><span class="lamp ${g.ok ? "on" : ""}"></span><div><b>${esc(g.gate)}</b><span>${esc(g.why)}</span></div></div>`).join("");
+
+  const live = d.markets.filter(m => (m.seconds_to_close ?? 1) > -300);
+  $("clocks").innerHTML = live.length ? live.map(clock).join("") :
+    `<div class="empty">No open 15-minute markets found yet. ${s.online ? "Kalshi may be between windows; the next scan runs within a minute." : "The data collector is not running."}</div>`;
+
+  renderPerf();
+
+  const pos = d.positions || [];
+  $("positions").innerHTML = pos.length ? `<table><tr><th>Market</th><th>Side</th><th>Qty</th><th>Paid</th><th>Now</th><th>Open P&amp;L</th><th>Closes</th></tr>${
+    pos.map(p => `<tr><td class="mono">${esc(p.ticker)}</td><td>${esc(p.side.toUpperCase())}</td><td class="mono">${p.count}</td><td class="mono">${cents(p.entry_price)}</td><td class="mono">${cents(p.mark)}</td><td class="mono ${p.unrealized >= 0 ? "pos" : "neg"}">${money(p.unrealized)}</td><td class="mono">${p.close_ms ? hhmm(p.close_ms) : "—"}</td></tr>`).join("")}</table><div class="muted" style="font-size:12px;margin-top:8px">PAPER · fake money · held until the market settles</div>`
+    : `<div class="empty">No open paper positions. The agent buys only when the model finds an edge of at least ${Math.round((s.settings.risk.min_edge || 0) * 100)}¢ after fees.</div>`;
+
+  const rd = d.readiness;
+  $("readiness").innerHTML = rd.criteria.map(c => `<div class="crit"><span class="lamp ${c.ok ? "on" : ""}" style="margin-top:3px"></span><div>${esc(c.name)}<span class="muted mono" style="float:right;font-size:12px">${esc(c.value)}</span>
+      <div class="bar"><i style="width:${Math.round(c.progress * 100)}%;background:${c.ok ? "var(--ok)" : "var(--pass)"}"></i></div></div></div>`).join("") +
+    `<div class="muted" style="font-size:12px;margin-top:10px">${esc(rd.note)}</div>`;
+
+  $("sparks").innerHTML = Object.entries(d.crypto).map(([sym, pts]) => {
+    const lastP = pts.length ? pts[pts.length - 1][1] : null, first = pts.length ? pts[0][1] : null;
+    const ch = lastP != null && first ? (lastP / first - 1) : null;
+    return `<div class="s"><b>${esc(sym)}</b><svg viewBox="0 0 300 42" preserveAspectRatio="none">${lineChart(pts, 300, 42, ch == null ? "var(--muted)" : ch >= 0 ? "var(--yes)" : "var(--no)")}</svg>
+      <span class="mono" style="text-align:right">${lastP != null ? "$" + fmtPrice(lastP) : "—"}<br><span class="${ch >= 0 ? "pos" : "neg"}" style="font-size:11px">${ch == null ? "" : (ch >= 0 ? "+" : "") + (ch * 100).toFixed(2) + "%"}</span></span></div>`;
+  }).join("") || `<div class="empty">No price data yet.</div>`;
+
+  const stateDot = {live: "ok", down: "critical", waiting: "warning", off: ""};
+  $("feeds").innerHTML = (d.feeds || []).map(f => `<div class="feed">
+      <b><span class="dot ${stateDot[f.state] ?? ""}"></span>${esc(f.label)}</b>
+      <span class="muted">${esc(f.how)}</span>
+      ${f.state === "off" ? `<span class="off">${esc(f.note || "off")}</span>` : `<span class="stat">${f.age_s != null ? "updated " + (f.age_s < 60 ? Math.round(f.age_s) + "s" : Math.round(f.age_s / 60) + "m") + " ago" : "no data yet"}${f.msgs_per_min != null ? " · " + f.msgs_per_min + "/min" : ""}${f.latency_ms != null ? " · " + Math.round(f.latency_ms) + " ms delay" : ""}</span>
+      ${f.state !== "live" && f.note ? `<span class="muted">${esc(f.note)}</span>` : ""}`}
+      ${Object.keys(f.errors || {}).length ? `<span class="muted">not responding: ${esc(Object.keys(f.errors).join(", "))}</span>` : ""}
+    </div>`).join("");
+  const ck = (h?.checks || []).find(c => c.name === "clock");
+  $("clockline").textContent = ck ? "Clock check: " + ck.detail + ". Every row is stamped on arrival, and models may only use what had arrived by decision time." : "Clock check: not measured yet.";
+
+  $("health").innerHTML = h ? h.checks.map(c => `<div title="${esc(c.detail)}"><span class="dot ${c.status}"></span>${esc(c.name.replace(/_/g, " "))}<span class="muted" style="font-size:11px;margin-left:auto">${esc(c.detail)}</span></div>`).join("") : `<div class="muted">Health check has not run yet.</div>`;
+
+  const c = d.costs;
+  $("costs").innerHTML = c.items.map(i => `<div class="cost"><span>${esc(i.item)}<br><span class="muted" style="font-size:11px">${esc(i.note || "")}</span></span><span class="mono">${money(i.monthly_usd)}</span></div>`).join("") +
+    `<div class="cost total"><span>Estimated total</span><span class="mono">${money(c.total_monthly_usd)}/mo</span></div>`;
+
+  $("log").innerHTML = d.events.length ? d.events.map(e => `<div><span class="muted mono">${hhmm(e.ts_ms)}</span><span class="lvl-${esc(e.level)}">${esc(e.source)}</span><span>${esc(e.message)}</span></div>`).join("") : `<div class="muted">No events yet.</div>`;
+
+  const st = d.data;
+  $("data").innerHTML = `<table>
+    <tr><td>Markets seen</td><td class="mono">${st.markets.toLocaleString()}</td></tr>
+    <tr><td>Settled markets</td><td class="mono">${st.settled_markets.toLocaleString()}</td></tr>
+    <tr><td>Market snapshots</td><td class="mono">${st.market_snapshots.toLocaleString()}</td></tr>
+    <tr><td>Order book snapshots</td><td class="mono">${st.orderbook_snapshots.toLocaleString()}</td></tr>
+    <tr><td>Crypto prices</td><td class="mono">${st.crypto_prices.toLocaleString()}</td></tr>
+    <tr><td>Index stand-in readings</td><td class="mono">${(st.index_ticks ?? 0).toLocaleString()}</td></tr>
+    <tr><td>Kalshi trades</td><td class="mono">${(st.kalshi_trades ?? 0).toLocaleString()}</td></tr>
+    <tr><td>History candles (Kalshi + crypto)</td><td class="mono">${((st.market_candles ?? 0) + (st.crypto_candles ?? 0)).toLocaleString()}</td></tr>
+    <tr><td>Database size</td><td class="mono">${st.db_mb != null ? st.db_mb + " MB" : "—"}</td></tr>
+    <tr><td>Collecting since</td><td class="mono">${st.collecting_since_ms ? new Date(st.collecting_since_ms).toLocaleString() : "—"}</td></tr></table>`;
+
+  $("foot").textContent = `v${s.version} · Phase ${s.phase} · Kalshi ${s.kalshi_env} · model ${s.model_version} · updated ${new Date().toLocaleTimeString()}`;
+}
+
+function renderQuality(q) {
+  const S = q.settled, bf = q.backfill, rows = [];
+  const syms = Object.entries(S.by_symbol || {});
+  rows.push(`<div class="qrow"><span>Settled markets saved</span><span class="mono">${S.total.toLocaleString()}</span></div>`);
+  if (S.first_close_ms) rows.push(`<div class="qrow"><span>Covering</span><span class="mono">${new Date(S.first_close_ms).toLocaleDateString()} – ${new Date(S.last_close_ms).toLocaleDateString()}</span></div>`);
+  rows.push(syms.length ? syms.map(([sym, b]) => { const n = b.yes + b.no, y = n ? b.yes / n : 0;
+    return `<div style="font-size:12px;margin-top:6px"><b>${esc(sym)}</b> <span class="muted">settled YES ${b.yes} · NO ${b.no} (${n ? Math.round(y * 100) : 0}% YES)</span>
+      <div class="bar"><i style="width:${y * 100}%;background:var(--yes)"></i><i style="width:${(1 - y) * 100}%;background:var(--no)"></i></div></div>`; }).join("")
+    : `<div class="muted" style="font-size:13px">No settled markets downloaded yet.</div>`);
+  rows.push(`<div class="qrow" style="margin-top:6px"><span>Markets with minute-by-minute prices</span><span class="mono">${S.with_candles.toLocaleString()}</span></div>`);
+  const ch = q.crypto_history || [];
+  if (ch.length) rows.push(`<div class="qrow"><span>Crypto price history</span><span class="mono">${ch.map(c => esc(c.symbol) + " " + Math.round(c.n / 1440) + "d").join(" · ")}</span></div>`);
+  const rc = q.rule_check;
+  if (rc.checked) rows.push(`<div class="qrow" title="Re-derives each result from Kalshi's reported settlement value and the strike, to confirm we understand the rule."><span>Settlement rule check</span><span class="mono ${rc.agree === rc.checked ? "pos" : "neg"}">${rc.agree} of ${rc.checked} match</span></div>`);
+  const pc = q.proxy_check;
+  rows.push(`<div class="qrow" title="Compares our free index stand-in (60s average before close) with the value Kalshi actually settled on."><span>Index stand-in vs real settlement</span><span class="mono">${pc.n ? `off by ${pc.mean_abs_pct.toFixed(3)}% avg · same side ${pc.agree}/${pc.n}` : "measured once live markets settle"}</span></div>`);
+  if (bf) rows.push(`<div class="muted" style="font-size:12px;margin-top:8px">History download: ${esc(bf.phase)}${bf.markets_done ? ` · ${bf.markets_done} markets fetched this run` : ""}${bf.errors ? ` · ${bf.errors} errors` : ""}</div>`);
+  $("quality").innerHTML = rows.join("");
+}
+
+async function loadSide() {
+  try {
+    const [trades, research, q, mi] = await Promise.all([api("/api/trades"), api("/api/research"), api("/api/quality"), api("/api/model")]);
+    renderQuality(q);
+    $("trades").innerHTML = trades.length ? `<table><tr><th>Mode</th><th>Market</th><th>Side</th><th>Entry</th><th>Exit</th><th>Model P</th><th>Market P</th><th>Edge</th><th>P&amp;L</th><th>Why</th></tr>${
+      trades.map(t => `<tr><td class="mono">${esc(t.mode)}</td><td class="mono">${esc(t.ticker)}</td><td>${esc(t.side)}</td><td class="mono">${cents(t.entry_price)}</td><td class="mono">${cents(t.exit_price)}</td><td class="mono">${pct(t.p_yes_at_entry)}</td><td class="mono">${pct(t.market_price_at_entry)}</td><td class="mono">${pct(t.edge_at_entry)}</td><td class="mono ${t.pnl >= 0 ? "pos" : "neg"}">${money(t.pnl)}</td><td>${esc(t.reason)}</td></tr>`).join("")}</table>`
+      : `<div class="empty">No trades yet. Paper trades appear here once an approved model finds an edge and every gate is green.</div>`;
+    const r = research, a = mi.active;
+    let html = "";
+    if (a) {
+      const t = a.metrics.test || {}, b = a.metrics.backtest || {};
+      const f4 = v => v == null ? "—" : v.toFixed(4);
+      html += `<div class="qrow"><span>Active model</span><span class="mono">${esc(a.version)}</span></div>
+        <div class="qrow" title="Brier score on markets the model never saw. Lower is better; the market's own prices are the bar to beat."><span>Accuracy on unseen markets</span><span class="mono">${f4(t.brier)} vs market ${f4(t.market_brier)}</span></div>
+        <div class="qrow"><span>Calibration error</span><span class="mono">${t.calibration?.ece != null ? (t.calibration.ece * 100).toFixed(1) + "%" : "—"}</span></div>
+        <div class="qrow"><span>Backtest <span class="tag">SIMULATED</span></span><span class="mono">${b.n_trades ?? 0} trades · ${money(b.pnl)}</span></div>
+        <div class="muted" style="font-size:12px">Trained on ${a.metrics.n_train_markets} markets, tested on ${a.metrics.n_test_markets} later ones it never saw.</div>`;
+    } else {
+      const tr = mi.trainer;
+      html += `<div class="muted" style="font-size:13px">${esc(tr?.message || "No approved model yet. Training starts once enough past markets are downloaded.")}</div>`;
+    }
+    if (mi.latest && (!a || mi.latest.version !== a.version)) html += `<div class="muted" style="font-size:12px;margin-top:8px">Latest attempt ${esc(mi.latest.version)}: ${esc(mi.latest.status)}${mi.latest.notes ? " (" + esc(mi.latest.notes) + ")" : ""}</div>`;
+    html += `<div class="muted" style="font-size:12px;margin-top:10px">Models: ${r.models.length} · Experiments: ${r.experiments.length} · Backtests: ${r.backtests.length}</div>`;
+    $("research").innerHTML = html;
+  } catch (e) {}
+}
+
+async function refresh() {
+  try { render(await api("/api/overview")); renderCreds(); }
+  catch (e) { $("online").textContent = "dashboard can't reach server"; $("onlineDot").className = "dot critical"; }
+}
+
+$("killBtn").onclick = async () => {
+  const engaged = last?.status.kill_switch.engaged;
+  if (!engaged && !confirm("Engage the kill switch? All trading stops immediately.")) return;
+  if (engaged && !confirm("Release the dashboard kill switch?")) return;
+  await api(engaged ? "/api/unkill" : "/api/kill", {method: "POST"});
+  refresh();
+};
+$("pauseBtn").onclick = async () => {
+  await api("/api/collector/" + (last?.status.collector_paused ? "resume" : "pause"), {method: "POST"});
+  refresh();
+};
+
+let credState = null, credEditing = false;
+function renderCreds() {
+  const c = credState; if (!c) return;
+  const showForm = !c.configured || credEditing;
+  $("connectForm").hidden = !showForm;
+  $("keyCancel").hidden = !c.configured;
+  const ws = (last?.feeds || []).find(f => f.key === "feed:kalshi_ws");
+  const live = ws?.state === "live";
+  $("connectState").innerHTML = c.configured && !credEditing
+    ? `<div class="connected"><span class="dot ${c.problem ? "critical" : live ? "ok" : "warning"}"></span>
+        <span>API key <span class="mono">${esc(c.key_id_hint)}</span> saved on this Mac. ${c.problem ? esc(c.problem) : live ? "Real-time stream is live." : "Real-time stream is connecting…"}</span>
+        <span class="spacer"></span><button id="keyReplace" type="button">Replace key</button></div>`
+    : (c.configured ? "" : `<div class="muted" style="font-size:13px;margin-bottom:12px">Optional. Connecting your Kalshi account gives the agent Kalshi's real-time stream instead of checking prices every few seconds.</div>`);
+  const rb = $("keyReplace"); if (rb) rb.onclick = () => { credEditing = true; renderCreds(); };
+}
+async function loadCreds() { try { credState = await api("/api/credentials"); renderCreds(); } catch (e) {} }
+$("keyCancel").onclick = () => { credEditing = false; $("keyMsg").textContent = ""; renderCreds(); };
+$("keyForm").onsubmit = async ev => {
+  ev.preventDefault();
+  const msg = $("keyMsg"), btn = $("keySave");
+  btn.disabled = true; msg.className = "msg"; msg.textContent = "Saving and checking with Kalshi…";
+  try {
+    const r = await api("/api/credentials", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({key_id: $("keyId").value, private_key: $("keyPem").value})});
+    if (!r.ok) { msg.className = "msg bad"; msg.textContent = r.error; return; }
+    $("keyPem").value = ""; $("keyId").value = "";
+    msg.className = "msg " + (r.verified === false ? "bad" : "good");
+    msg.textContent = r.note + (r.verified === false ? "" : " The data collector restarts now; the real-time stream should turn green in about 30 seconds.");
+    if (r.verified !== false) credEditing = false;
+    await loadCreds();
+  } catch (e) { msg.className = "msg bad"; msg.textContent = "Could not save (" + e.message + "). Is the agent running?"; }
+  finally { btn.disabled = false; }
+};
+
+let upState = null, tokEditing = false;
+function renderUpdates() {
+  const u = upState; if (!u) return;
+  const showForm = u.enabled && (!u.has_token || tokEditing);
+  $("tokenForm").hidden = !showForm;
+  $("tokCancel").hidden = !u.has_token;
+  const dot = {current: "ok", installed: "ok", error: "critical", rejected: "warning", offline: "warning", off: ""}[u.state] ?? "warning";
+  const ver = u.installed ? `version <span class="mono">${esc(u.installed.slice(0, 7))}</span>` : "version unknown";
+  const msg = !u.enabled ? "Turned off in settings." : !u.has_token ? "Needs a read-only GitHub token to download updates from your private repo."
+    : u.check_requested ? "Checking for updates…" : (u.message || "Waiting for the first check.");
+  $("updateState").innerHTML = `<span class="dot ${u.has_token ? dot : "warning"}"></span>
+    <span>${ver}. ${esc(msg)}${u.checked_ms ? ` <span class="muted">Checked ${ago(u.checked_ms)}.</span>` : ""}</span>
+    <span class="spacer"></span>
+    ${u.has_token && u.enabled ? `<button id="upCheck" type="button">Check now</button><button id="tokReplace" type="button">Replace token</button>` : ""}`;
+  const c = $("upCheck"); if (c) c.onclick = async () => { await api("/api/updates/check", {method: "POST"}); loadUpdates(); };
+  const r = $("tokReplace"); if (r) r.onclick = () => { tokEditing = true; renderUpdates(); };
+}
+async function loadUpdates() { try { upState = await api("/api/updates"); renderUpdates(); } catch (e) {} }
+$("tokCancel").onclick = () => { tokEditing = false; $("tokMsg").textContent = ""; renderUpdates(); };
+$("tokForm").onsubmit = async ev => {
+  ev.preventDefault();
+  const msg = $("tokMsg"), btn = $("tokSave");
+  btn.disabled = true; msg.className = "msg"; msg.textContent = "Checking the token with GitHub…";
+  try {
+    const r = await api("/api/updates/token", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({token: $("ghToken").value})});
+    if (!r.ok) { msg.className = "msg bad"; msg.textContent = r.error; return; }
+    $("ghToken").value = ""; msg.className = "msg good"; msg.textContent = r.note; tokEditing = false;
+    await loadUpdates();
+  } catch (e) { msg.className = "msg bad"; msg.textContent = "Could not save (" + e.message + ")."; }
+  finally { btn.disabled = false; }
+};
+
+refresh(); loadSide(); loadCreds(); loadUpdates();
+setInterval(loadUpdates, 20000);
+setInterval(loadCreds, 20000);
+setInterval(refresh, 5000);
+setInterval(loadSide, 20000);
+</script>
+</body>
+</html>
