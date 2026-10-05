@@ -7,7 +7,17 @@
 # Backs up the database and your settings file first, then restarts the agent.
 set -euo pipefail
 SRC="$(cd "$(dirname "$0")" && pwd)"
-TARGET="${1:-$HOME/kalshi-agent}"
+TARGET="${1:-}"
+if [ -z "$TARGET" ]; then
+  # Find the copy that is already running/collecting: it has a data/kalshi_agent.db.
+  for cand in "$HOME/kalshi-agent" "$HOME/Desktop/kalshi-agent" "$HOME/Documents/kalshi-agent" \
+              "$HOME"/Downloads/kalshi-agent*; do
+    c="$(cd "$cand" 2>/dev/null && pwd)" || continue
+    if [ "$c" != "$SRC" ] && [ -f "$c/data/kalshi_agent.db" ]; then TARGET="$c"; break; fi
+  done
+  TARGET="${TARGET:-$HOME/kalshi-agent}"
+fi
+echo "Updating the agent in: $TARGET"
 
 say()  { printf '\n\033[1;33m%s\033[0m\n' "$*"; }
 fail() { printf '\n\033[1;31m%s\033[0m\n' "$*"; read -r -p "Press Enter to close. " _; exit 1; }
@@ -17,7 +27,7 @@ if [ "$SRC" = "$(cd "$TARGET" 2>/dev/null && pwd)" ]; then
   bash "$TARGET/stop.sh" >/dev/null 2>&1 || true
   exec bash "$TARGET/start.sh"
 fi
-[ -f "$TARGET/start.sh" ] || fail "Couldn't find your agent at $TARGET. Tell Claude where the kalshi-agent folder is."
+[ -f "$TARGET/start.sh" ] || fail "Couldn't find your agent at $TARGET. Run this again with the old folder dragged in after it: bash install_update.sh <old kalshi-agent folder>"
 
 say "Stopping the running agent..."
 bash "$TARGET/stop.sh" >/dev/null 2>&1 || true
