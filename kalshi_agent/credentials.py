@@ -13,7 +13,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 KEY_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{7,79}$")
-ENV_KEYS = ("KALSHI_API_KEY_ID", "KALSHI_PRIVATE_KEY_PATH")
+KINDS = {  # prod = the real-money exchange's market data key; demo = demo.kalshi.co account
+    "prod": ("KALSHI_API_KEY_ID", "KALSHI_PRIVATE_KEY_PATH", "kalshi.key"),
+    "demo": ("KALSHI_DEMO_API_KEY_ID", "KALSHI_DEMO_PRIVATE_KEY_PATH", "kalshi-demo.key"),
+}
 MAX_PEM_CHARS = 12_000
 
 
@@ -21,8 +24,8 @@ class CredentialError(ValueError):
     """A problem the user can fix; the message is shown on the dashboard."""
 
 
-def key_path(root: Path) -> Path:
-    return root / "secrets" / "kalshi.key"
+def key_path(root: Path, kind: str = "prod") -> Path:
+    return root / "secrets" / KINDS[kind][2]
 
 
 def read_env(root: Path) -> dict[str, str]:
@@ -78,17 +81,20 @@ def _key_type(path: Path) -> str:
     return "Ed25519" if "ed25519" in type(key).__name__.lower() else "RSA"
 
 
-def save(root: Path, key_id: str, pem: str) -> dict[str, Any]:
-    """Validate, then write secrets/kalshi.key and update .env. Raises CredentialError."""
+def save(root: Path, key_id: str, pem: str, kind: str = "prod") -> dict[str, Any]:
+    """Validate, then write the key file under secrets/ and update .env. Raises CredentialError."""
+    if kind not in KINDS:
+        raise CredentialError("Unknown key type.")
+    id_var, path_var, _ = KINDS[kind]
     key_id = clean_key_id(key_id)
     pem = clean_pem(pem)
     secrets_dir = root / "secrets"
     secrets_dir.mkdir(parents=True, exist_ok=True)
     os.chmod(secrets_dir, 0o700)
-    target = key_path(root)
+    target = key_path(root, kind)
 
     # Check the key parses before replacing anything that already works.
-    trial = secrets_dir / "kalshi.key.check"
+    trial = secrets_dir / (target.name + ".check")
     _write_private(trial, pem)
     try:
         key_type = _key_type(trial)
@@ -106,8 +112,8 @@ def save(root: Path, key_id: str, pem: str) -> dict[str, Any]:
 
     env_path = root / ".env"
     lines = env_path.read_text().splitlines() if env_path.exists() else []
-    kept = [ln for ln in lines if ln.split("=", 1)[0].strip() not in ENV_KEYS]
-    kept += [f"KALSHI_API_KEY_ID={key_id}", f"KALSHI_PRIVATE_KEY_PATH={target}"]
+    kept = [ln for ln in lines if ln.split("=", 1)[0].strip() not in (id_var, path_var)]
+    kept += [f"{id_var}={key_id}", f"{path_var}={target}"]
     _write_private(env_path, "\n".join(kept) + "\n")
     return {"key_type": key_type, "key_id_hint": hint(key_id)}
 
@@ -116,11 +122,11 @@ def hint(key_id: str | None) -> str | None:
     return f"…{key_id[-4:]}" if key_id else None
 
 
-def status(root: Path) -> dict[str, Any]:
+def status(root: Path, kind: str = "prod") -> dict[str, Any]:
     """What the dashboard shows. Never includes the key itself."""
     env = read_env(root)
-    key_id = env.get("KALSHI_API_KEY_ID")
-    path = env.get("KALSHI_PRIVATE_KEY_PATH")
+    key_id = env.get(KINDS[kind][0])
+    path = env.get(KINDS[kind][1])
     out: dict[str, Any] = {"configured": bool(key_id and path), "key_id_hint": hint(key_id), "problem": None}
     if not out["configured"]:
         return out

@@ -135,3 +135,14 @@ def test_dashboard_update_endpoints(root, settings, db, monkeypatch):
     monkeypatch.setattr(updater, "save_token", lambda *a, **k: (_ for _ in ()).throw(CredentialError("nope")))
     bad = json.loads(app.handle("POST", "/api/updates/token", None, b'{"token":"x"}', {})[2])
     assert bad == {"ok": False, "error": "nope"}
+
+
+def test_demo_unlock_may_stay_but_never_appear_or_spread(root, settings):
+    (root / "kalshi_agent" / "safety.py").write_text("LIVE_TRADING_UNLOCKED = False\nDEMO_TRADING_UNLOCKED = True\n")
+    out = updater.check(settings, root, http=FakeGitHub(zip_bytes=make_zip("False", "True")),
+                        tests=lambda r, n: (True, "ok"), do_restart=lambda r: None)
+    assert out["state"] == "installed"
+    (root / "REVISION").write_text("b" * 40)
+    out = updater.check(settings, root, http=FakeGitHub(sha="c" * 40, zip_bytes=make_zip("True", "True")),
+                        tests=lambda r, n: pytest.fail("must not test"), do_restart=lambda r: None)
+    assert out["state"] == "error" and "LIVE_TRADING_UNLOCKED" in out["message"]

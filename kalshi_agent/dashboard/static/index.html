@@ -25,6 +25,7 @@
   --dial:#1c2530; --glow:rgba(242,180,64,.15);
 }
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 var(--sans);-webkit-font-smoothing:antialiased}
 .wrap{max-width:1320px;margin:0 auto;padding:20px 16px 60px}
 .mono{font-family:var(--mono)}
@@ -181,6 +182,27 @@ button.primary{background:var(--ink);color:var(--bg);border-color:var(--ink);fon
   <div class="grid perf" style="margin-top:16px">
     <div class="panel"><h2>Open paper positions</h2><div id="positions"></div></div>
     <div class="panel"><h2>Ready for real money?</h2><div id="readiness"></div></div>
+  </div>
+
+  <div class="panel" id="demoPanel" style="margin-top:16px">
+    <h2>Demo exchange <span class="tag">FAKE MONEY</span></h2>
+    <div id="demoState"></div>
+    <div class="connect" id="demoForm" hidden style="margin-top:14px">
+      <ol class="muted">
+        <li>Make a free practice account at <b>demo.kalshi.co</b> (separate from your real account; it comes with fake money).</li>
+        <li>In that demo account open <b>Account &amp; Security → API Keys → Create New API Key</b>.</li>
+        <li>Paste its Key ID and private key here. The agent then copies each paper trade onto the demo exchange with real orders, to test order handling end to end.</li>
+        <li>This can never touch your real account or real money.</li>
+      </ol>
+      <form id="demoKeyForm" autocomplete="off">
+        <label for="demoKeyId">Demo Key ID</label>
+        <input id="demoKeyId" spellcheck="false" autocapitalize="off" placeholder="a1b2c3d4-e5f6-7890-…">
+        <label for="demoKeyPem" style="margin-top:10px">Demo private key</label>
+        <textarea id="demoKeyPem" spellcheck="false" autocapitalize="off" placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;…&#10;-----END RSA PRIVATE KEY-----"></textarea>
+        <div style="display:flex;gap:8px;margin-top:10px"><button class="primary" id="demoKeySave" type="submit">Save demo key</button><button type="button" id="demoKeyCancel" hidden>Cancel</button></div>
+        <div class="msg" id="demoKeyMsg"></div>
+      </form>
+    </div>
   </div>
 
   <div class="panel" id="connectPanel" style="margin-top:16px">
@@ -473,7 +495,7 @@ async function loadSide() {
 }
 
 async function refresh() {
-  try { render(await api("/api/overview")); renderCreds(); }
+  try { render(await api("/api/overview")); renderCreds(); renderDemo(); }
   catch (e) { $("online").textContent = "dashboard can't reach server"; $("onlineDot").className = "dot critical"; }
 }
 
@@ -552,6 +574,45 @@ $("tokForm").onsubmit = async ev => {
     if (!r.ok) { msg.className = "msg bad"; msg.textContent = r.error; return; }
     $("ghToken").value = ""; msg.className = "msg good"; msg.textContent = r.note; tokEditing = false;
     await loadUpdates();
+  } catch (e) { msg.className = "msg bad"; msg.textContent = "Could not save (" + e.message + ")."; }
+  finally { btn.disabled = false; }
+};
+
+let demoEditing = false;
+function renderDemo() {
+  const d = last?.demo, c = credState?.demo; if (!d) return;
+  const configured = c ? c.configured : d.configured;
+  $("demoForm").hidden = configured && !demoEditing;
+  $("demoKeyCancel").hidden = !configured;
+  if (!configured || demoEditing) {
+    $("demoState").innerHTML = configured ? "" : `<div class="muted" style="font-size:13px">Phase 7: test real order handling on Kalshi's practice exchange before real money is ever considered. Needs a demo account key.</div>`;
+    return;
+  }
+  const o = d.orders || {};
+  const gap = d.avg_gap == null ? "—" : (d.avg_gap >= 0 ? "+" : "−") + Math.abs(d.avg_gap * 100).toFixed(1) + "¢";
+  $("demoState").innerHTML = `<div class="connected"><span class="dot ${c?.problem ? "critical" : d.active && !d.note ? "ok" : "warning"}"></span>
+      <span>${c?.problem ? esc(c.problem) : d.active ? (d.note ? esc(d.note) : "Copying paper trades onto the demo exchange.") : esc(d.note || "Starting…")}</span>
+      <span class="spacer"></span><button id="demoReplace" type="button">Replace key</button></div>
+    <div class="qrow" style="margin-top:10px"><span>Demo balance</span><span class="mono">${d.balance != null ? money(d.balance) : "—"}</span></div>
+    <div class="qrow"><span>Orders sent · filled · rejected</span><span class="mono">${d.sent} · ${(o.filled || 0) + (o.partial || 0)} · ${o.rejected || 0}</span></div>
+    <div class="qrow" title="How much more (or less) the demo fills cost than the paper trades they copied."><span>Demo price vs paper</span><span class="mono">${gap}${d.n_gaps ? ` over ${d.n_gaps}` : ""}</span></div>
+    ${d.last_problem ? `<div class="muted" style="font-size:12px;margin-top:8px">Last skipped: ${esc(d.last_problem.reject_reason)}</div>` : ""}`;
+  const rb = $("demoReplace"); if (rb) rb.onclick = () => { demoEditing = true; renderDemo(); };
+}
+$("demoKeyCancel").onclick = () => { demoEditing = false; $("demoKeyMsg").textContent = ""; renderDemo(); };
+$("demoKeyForm").onsubmit = async ev => {
+  ev.preventDefault();
+  const msg = $("demoKeyMsg"), btn = $("demoKeySave");
+  btn.disabled = true; msg.className = "msg"; msg.textContent = "Saving and checking with the demo exchange…";
+  try {
+    const r = await api("/api/credentials", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({kind: "demo", key_id: $("demoKeyId").value, private_key: $("demoKeyPem").value})});
+    if (!r.ok) { msg.className = "msg bad"; msg.textContent = r.error; return; }
+    $("demoKeyPem").value = ""; $("demoKeyId").value = "";
+    msg.className = "msg " + (r.verified === false ? "bad" : "good");
+    msg.textContent = r.note.replace("Kalshi accepted", "The demo exchange accepted");
+    if (r.verified !== false) demoEditing = false;
+    await loadCreds(); renderDemo();
   } catch (e) { msg.className = "msg bad"; msg.textContent = "Could not save (" + e.message + ")."; }
   finally { btn.disabled = false; }
 };

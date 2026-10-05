@@ -11,7 +11,7 @@ can create. LIVE requires ALL of these gates; any failure means no order:
   G5  Kalshi environment is "prod" with credentials present
   G6  kill switch not engaged and health says trading is allowed
 
-DEMO requires DEMO_TRADING_UNLOCKED (False until Phase 7) and the demo host.
+DEMO requires DEMO_TRADING_UNLOCKED, demo credentials and the demo host (fake money only).
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from .db import Database
 from .modes import TradingMode
 
 LIVE_TRADING_UNLOCKED = False   # Phase 8+. Do not change without validated results.
-DEMO_TRADING_UNLOCKED = False   # Phase 7.
+DEMO_TRADING_UNLOCKED = True    # Phase 7: Kalshi's fake-money demo exchange only.
 LIVE_CONFIRM_PHRASE = "I-UNDERSTAND-THIS-USES-REAL-MONEY"
 
 _PERMIT_SEAL = secrets.token_hex(16)

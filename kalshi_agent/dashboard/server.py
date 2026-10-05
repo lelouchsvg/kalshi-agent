@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .. import credentials, state, updater
-from ..config import ROOT, Settings, load_settings
+from ..config import KALSHI_BASE_URLS, ROOT, Settings, load_settings
 from ..db import Database, open_db
 from ..safety import engage_kill, release_kill
 
@@ -47,7 +47,8 @@ class DashboardApp:
             "/api/quality": lambda u: state.data_quality(self.db, self.s),
             "/api/model": lambda u: state.model_info(self.db, self.s),
             "/api/health": lambda u: state.status(self.db, self.s)["health"] or {"overall": "unknown", "checks": []},
-            "/api/credentials": lambda u: credentials.status(self.root),
+            "/api/credentials": lambda u: {**credentials.status(self.root),
+                                           "demo": credentials.status(self.root, "demo")},
             "/api/updates": self.update_status,
         }
 
@@ -79,6 +80,7 @@ class DashboardApp:
             "feeds": state.feeds(self.db, self.s),
             "positions": state.open_positions(self.db, "PAPER"),
             "readiness": state.live_readiness(self.db, self.s),
+            "demo": state.demo_info(self.db, self.s),
         }
 
     def check_same_origin(self, headers: dict[str, str]) -> None:
@@ -99,17 +101,26 @@ class DashboardApp:
             data = json.loads(body or b"{}")
         except ValueError:
             raise HTTPError(400, "Bad request") from None
+        kind = "demo" if data.get("kind") == "demo" else "prod"
         try:
-            info = credentials.save(self.root, str(data.get("key_id", "")), str(data.get("private_key", "")))
+            info = credentials.save(self.root, str(data.get("key_id", "")), str(data.get("private_key", "")), kind)
         except credentials.CredentialError as exc:
             return {"ok": False, "error": str(exc)}
         key_id = str(data["key_id"]).strip()
-        path = credentials.key_path(self.root)
-        self.s.kalshi_api_key_id, self.s.kalshi_private_key_path = key_id, str(path)
-        verified, note = credentials.verify(self.s.kalshi_base_url, key_id, path)
+        path = credentials.key_path(self.root, kind)
+        if kind == "demo":
+            self.s.kalshi_demo_api_key_id, self.s.kalshi_demo_private_key_path = key_id, str(path)
+            base_url = KALSHI_BASE_URLS["demo"]
+        else:
+            self.s.kalshi_api_key_id, self.s.kalshi_private_key_path = key_id, str(path)
+            base_url = self.s.kalshi_base_url
+        verified, note = credentials.verify(base_url, key_id, path)
+        if kind == "demo" and verified is False:
+            note = note.replace("on Kalshi", "on demo.kalshi.co")
         self.db.set_control("collector_restart", "requested", f"dashboard:{user}")
+        label = "Kalshi demo key" if kind == "demo" else "Kalshi API key"
         self.db.log_event("dashboard", "info" if verified is not False else "warning",
-                          f"Kalshi API key {info['key_id_hint']} saved ({info['key_type']}). {note}")
+                          f"{label} {info['key_id_hint']} saved ({info['key_type']}). {note}")
         return {"ok": True, "verified": verified, "note": note, **info}
 
     def update_status(self, user: str) -> dict[str, Any]:

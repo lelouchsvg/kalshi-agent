@@ -64,6 +64,14 @@ health:
 
 crypto_provider: coinbase       # coinbase | kraken
 
+# Phase 7: copy each paper trade onto Kalshi's DEMO exchange (fake money, separate
+# account at demo.kalshi.co) to test real order handling. Never touches real money.
+demo:
+  enabled: true
+  max_contracts: 2              # per demo order
+  max_price_gap: 0.02           # skip if the demo price is 2¢+ worse than the paper price
+  max_orders_per_day: 50
+
 # Automatic updates: the agent checks this GitHub repo, runs the safety tests on any
 # new version, and installs it only if they pass. Your data, .env and keys are never
 # touched, and an automatic update can never unlock real-money trading.

@@ -76,6 +76,10 @@ class Settings:
     dashboard_host: str = "127.0.0.1"
     dashboard_port: int = 8080
     costs: list[dict[str, Any]] = field(default_factory=list)
+    demo_enabled: bool = True              # Phase 7: mirror paper trades on Kalshi's demo exchange
+    demo_max_contracts: int = 2
+    demo_max_price_gap: float = 0.02       # skip if demo price is this much worse than paper's
+    demo_max_orders_per_day: int = 50
     auto_update: bool = True
     update_repo: str = "lelouchsvg/kalshi-agent"
     update_branch: str = "main"
@@ -87,6 +91,8 @@ class Settings:
     # Secrets: read from env only. Never logged, never shown on the dashboard.
     kalshi_api_key_id: str | None = None
     kalshi_private_key_path: str | None = None
+    kalshi_demo_api_key_id: str | None = None
+    kalshi_demo_private_key_path: str | None = None
     dashboard_password: str | None = None
 
     @property
@@ -100,6 +106,10 @@ class Settings:
     @property
     def has_kalshi_credentials(self) -> bool:
         return bool(self.kalshi_api_key_id and self.kalshi_private_key_path)
+
+    @property
+    def has_demo_credentials(self) -> bool:
+        return bool(self.kalshi_demo_api_key_id and self.kalshi_demo_private_key_path)
 
     def public_view(self) -> dict[str, Any]:
         """Settings safe to show on the dashboard (no secrets)."""
@@ -174,6 +184,11 @@ def load_settings(config_path: Path | None = None, env: dict[str, str] | None = 
     s.dashboard_host = str(d.get("host", s.dashboard_host))
     s.dashboard_port = int(d.get("port", s.dashboard_port))
     s.costs = list(raw.get("costs") or [])
+    dm = raw.get("demo") or {}
+    s.demo_enabled = bool(dm.get("enabled", s.demo_enabled))
+    s.demo_max_contracts = max(1, int(dm.get("max_contracts", s.demo_max_contracts)))
+    s.demo_max_price_gap = float(dm.get("max_price_gap", s.demo_max_price_gap))
+    s.demo_max_orders_per_day = int(dm.get("max_orders_per_day", s.demo_max_orders_per_day))
     up = raw.get("updates") or {}
     s.auto_update = bool(up.get("enabled", s.auto_update))
     s.update_repo = str(up.get("repo", s.update_repo))
@@ -184,5 +199,7 @@ def load_settings(config_path: Path | None = None, env: dict[str, str] | None = 
 
     s.kalshi_api_key_id = env.get("KALSHI_API_KEY_ID") or None
     s.kalshi_private_key_path = env.get("KALSHI_PRIVATE_KEY_PATH") or None
+    s.kalshi_demo_api_key_id = env.get("KALSHI_DEMO_API_KEY_ID") or None
+    s.kalshi_demo_private_key_path = env.get("KALSHI_DEMO_PRIVATE_KEY_PATH") or None
     s.dashboard_password = env.get("DASHBOARD_PASSWORD") or None
     return s
