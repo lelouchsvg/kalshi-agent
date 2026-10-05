@@ -216,6 +216,12 @@ class Collector:
         failures = 0
         while not self._stop_event.is_set():
             self.db.heartbeat("collector", {"paused": self.paused(), "active_markets": len(self.active)})
+            if self.db.get_control("collector_restart") == "requested":
+                # new API key saved on the dashboard: exit cleanly, run_forever.sh restarts us
+                self.db.set_control("collector_restart", "done", "collector")
+                self.db.log_event("collector", "info", "Restarting to pick up the new Kalshi API key")
+                self.stop()
+                break
             if self.paused():
                 self._stop_event.wait(2)
                 continue

@@ -16,8 +16,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
 
-from .. import state
-from ..config import Settings, load_settings
+from .. import credentials, state
+from ..config import ROOT, Settings, load_settings
 from ..db import Database, open_db
 from ..safety import engage_kill, release_kill
 
@@ -35,9 +35,10 @@ class HTTPError(Exception):
 class DashboardApp:
     """Routes requests to handlers. Kept separate from the HTTP plumbing so it is easy to test."""
 
-    def __init__(self, settings: Settings, db: Database):
+    def __init__(self, settings: Settings, db: Database, root: Path = ROOT):
         self.s = settings
         self.db = db
+        self.root = root
         self.get_routes: dict[str, Callable[[str], Any]] = {
             "/api/overview": self.overview,
             "/api/trades": lambda u: state.recent_trades(self.db),
@@ -46,6 +47,7 @@ class DashboardApp:
             "/api/quality": lambda u: state.data_quality(self.db, self.s),
             "/api/model": lambda u: state.model_info(self.db, self.s),
             "/api/health": lambda u: state.status(self.db, self.s)["health"] or {"overall": "unknown", "checks": []},
+            "/api/credentials": lambda u: credentials.status(self.root),
         }
 
     def authenticate(self, auth_header: str | None) -> str:
@@ -78,7 +80,40 @@ class DashboardApp:
             "readiness": state.live_readiness(self.db, self.s),
         }
 
-    def post(self, path: str, user: str) -> dict[str, Any]:
+    def check_same_origin(self, headers: dict[str, str]) -> None:
+        """Block other websites (and DNS-rebinding tricks) from posting to the local dashboard."""
+        if self.s.dashboard_host not in LOCAL_HOSTS:
+            return
+        host = (headers.get("host") or "").rsplit(":", 1)[0].strip("[]")
+        if host and host not in LOCAL_HOSTS:
+            raise HTTPError(403, "Forbidden host")
+        origin = headers.get("origin")
+        if origin and origin != "null":
+            o_host = origin.split("://", 1)[-1].split("/", 1)[0].rsplit(":", 1)[0]
+            if o_host not in LOCAL_HOSTS:
+                raise HTTPError(403, "Forbidden origin")
+
+    def save_credentials(self, user: str, body: bytes) -> dict[str, Any]:
+        try:
+            data = json.loads(body or b"{}")
+        except ValueError:
+            raise HTTPError(400, "Bad request") from None
+        try:
+            info = credentials.save(self.root, str(data.get("key_id", "")), str(data.get("private_key", "")))
+        except credentials.CredentialError as exc:
+            return {"ok": False, "error": str(exc)}
+        key_id = str(data["key_id"]).strip()
+        path = credentials.key_path(self.root)
+        self.s.kalshi_api_key_id, self.s.kalshi_private_key_path = key_id, str(path)
+        verified, note = credentials.verify(self.s.kalshi_base_url, key_id, path)
+        self.db.set_control("collector_restart", "requested", f"dashboard:{user}")
+        self.db.log_event("dashboard", "info" if verified is not False else "warning",
+                          f"Kalshi API key {info['key_id_hint']} saved ({info['key_type']}). {note}")
+        return {"ok": True, "verified": verified, "note": note, **info}
+
+    def post(self, path: str, user: str, body: bytes = b"") -> dict[str, Any]:
+        if path == "/api/credentials":
+            return self.save_credentials(user, body)
         if path == "/api/kill":
             engage_kill(self.db, f"dashboard:{user}", "kill button pressed")
             return {"ok": True}
@@ -94,7 +129,8 @@ class DashboardApp:
             return {"ok": True}
         raise HTTPError(404, "not found")
 
-    def handle(self, method: str, path: str, auth_header: str | None) -> tuple[int, str, bytes]:
+    def handle(self, method: str, path: str, auth_header: str | None, body: bytes = b"",
+               headers: dict[str, str] | None = None) -> tuple[int, str, bytes]:
         """Returns (status, content_type, body). Raises HTTPError for errors."""
         path = path.split("?", 1)[0]
         user = self.authenticate(auth_header)
@@ -103,7 +139,8 @@ class DashboardApp:
         if method == "GET" and path in self.get_routes:
             return 200, "application/json", json.dumps(self.get_routes[path](user), default=str).encode()
         if method == "POST":
-            return 200, "application/json", json.dumps(self.post(path, user)).encode()
+            self.check_same_origin({k.lower(): v for k, v in (headers or {}).items()})
+            return 200, "application/json", json.dumps(self.post(path, user, body)).encode()
         raise HTTPError(404, "not found")
 
 
@@ -124,9 +161,10 @@ def make_handler(app: DashboardApp) -> type[BaseHTTPRequestHandler]:
             self.end_headers()
             self.wfile.write(body)
 
-        def _dispatch(self, method: str) -> None:
+        def _dispatch(self, method: str, body: bytes = b"") -> None:
             try:
-                status, ctype, body = app.handle(method, self.path, self.headers.get("Authorization"))
+                status, ctype, body = app.handle(method, self.path, self.headers.get("Authorization"),
+                                                 body, dict(self.headers.items()))
                 self._respond(status, ctype, body)
             except HTTPError as e:
                 self._respond(e.status, "application/json", json.dumps({"error": e.message}).encode(), e.headers)
@@ -139,9 +177,10 @@ def make_handler(app: DashboardApp) -> type[BaseHTTPRequestHandler]:
 
         def do_POST(self) -> None:  # noqa: N802
             length = int(self.headers.get("Content-Length") or 0)
-            if length:
-                self.rfile.read(min(length, 10_000))
-            self._dispatch("POST")
+            if length > 20_000:
+                self._respond(413, "application/json", b'{"error": "too large"}')
+                return
+            self._dispatch("POST", self.rfile.read(length) if length else b"")
 
         def log_message(self, fmt: str, *args) -> None:  # keep the console quiet
             pass

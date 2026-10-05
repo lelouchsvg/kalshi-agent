@@ -40,10 +40,12 @@ including the collected data.
   data; the models will be trained only on what was actually recorded.
 - It uses roughly 150–250 MB of memory. If the Mac feels slow, Stop it and tell Claude.
 
-## Kalshi API keys: not needed yet
-Phases 1–6 only read public market data and paper trade. Keys are needed only for the demo
-exchange (Phase 7). When we get there, you'll create the key on kalshi.com and save the file
-into this folder yourself. Never paste keys into the chat.
+## Kalshi API key (optional)
+The agent works without one. A key adds Kalshi's real-time stream. To add it, open the
+dashboard, find **Kalshi account**, paste the Key ID and the private key from kalshi.com, and
+press **Save key**. It is saved only on this Mac (`secrets/kalshi.key`, readable only by you,
+plus two lines in `.env`) and the agent restarts its data collector by itself. A key never
+unlocks real-money trading. Never paste keys into the chat.
 
 ## Everyday use
 Look at the dashboard. The big word in the top left is the current decision; it says

@@ -110,8 +110,17 @@ td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
 .crit .bar{height:6px;margin-top:5px}
 .tag{font-family:var(--mono);font-size:10px;letter-spacing:.08em;padding:1px 6px;border-radius:4px;border:1px solid var(--line);color:var(--muted)}
 .foot{margin-top:18px;font-size:12px;color:var(--muted);text-align:center}
+.connect{display:grid;grid-template-columns:1fr 1.4fr;gap:20px;align-items:start}
+.connect label{display:block;font-size:12px;color:var(--muted);margin:0 0 4px}
+.connect input,.connect textarea{width:100%;font:13px/1.4 var(--mono);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 11px}
+.connect textarea{height:118px;resize:vertical}
+.connect input:focus,.connect textarea:focus{outline:2px solid var(--pass);outline-offset:1px}
+.connect ol{margin:0;padding-left:18px;font-size:13px;display:grid;gap:6px}
+button.primary{background:var(--ink);color:var(--bg);border-color:var(--ink);font-weight:500}
+.msg{font-size:13px;margin-top:8px} .msg.bad{color:var(--crit)} .msg.good{color:var(--ok)}
+.connected{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:14px}
 @media (max-width:900px){
-  .hero,.perf,.three,.feedrow{grid-template-columns:1fr}
+  .hero,.perf,.three,.feedrow,.connect{grid-template-columns:1fr}
   .gates{grid-template-columns:repeat(2,1fr)}
   .verdict .word{font-size:48px}
 }
@@ -172,6 +181,27 @@ td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
   <div class="grid perf" style="margin-top:16px">
     <div class="panel"><h2>Open paper positions</h2><div id="positions"></div></div>
     <div class="panel"><h2>Ready for real money?</h2><div id="readiness"></div></div>
+  </div>
+
+  <div class="panel" id="connectPanel" style="margin-top:16px">
+    <h2>Kalshi account</h2>
+    <div id="connectState"></div>
+    <div class="connect" id="connectForm" hidden>
+      <ol class="muted">
+        <li>On kalshi.com open <b>Account &amp; Security → API Keys → Create New API Key</b>.</li>
+        <li>Paste the <b>Key ID</b> and the whole <b>private key</b> here. If Kalshi downloaded a file, open it in TextEdit and copy everything.</li>
+        <li>Press <b>Save key</b>. It is stored only on this Mac (in the secrets folder, readable only by you) and is never shown again.</li>
+        <li>Paper trading stays on fake money. A key does not unlock real trading.</li>
+      </ol>
+      <form id="keyForm" autocomplete="off">
+        <label for="keyId">Key ID</label>
+        <input id="keyId" spellcheck="false" autocapitalize="off" placeholder="a1b2c3d4-e5f6-7890-…">
+        <label for="keyPem" style="margin-top:10px">Private key</label>
+        <textarea id="keyPem" spellcheck="false" autocapitalize="off" placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;…&#10;-----END RSA PRIVATE KEY-----"></textarea>
+        <div style="display:flex;gap:8px;margin-top:10px"><button class="primary" id="keySave" type="submit">Save key</button><button type="button" id="keyCancel" hidden>Cancel</button></div>
+        <div class="msg" id="keyMsg"></div>
+      </form>
+    </div>
   </div>
 
   <div class="grid feedrow" style="margin-top:16px">
@@ -425,7 +455,7 @@ async function loadSide() {
 }
 
 async function refresh() {
-  try { render(await api("/api/overview")); }
+  try { render(await api("/api/overview")); renderCreds(); }
   catch (e) { $("online").textContent = "dashboard can't reach server"; $("onlineDot").className = "dot critical"; }
 }
 
@@ -441,7 +471,42 @@ $("pauseBtn").onclick = async () => {
   refresh();
 };
 
-refresh(); loadSide();
+let credState = null, credEditing = false;
+function renderCreds() {
+  const c = credState; if (!c) return;
+  const showForm = !c.configured || credEditing;
+  $("connectForm").hidden = !showForm;
+  $("keyCancel").hidden = !c.configured;
+  const ws = (last?.feeds || []).find(f => f.key === "feed:kalshi_ws");
+  const live = ws?.state === "live";
+  $("connectState").innerHTML = c.configured && !credEditing
+    ? `<div class="connected"><span class="dot ${c.problem ? "critical" : live ? "ok" : "warning"}"></span>
+        <span>API key <span class="mono">${esc(c.key_id_hint)}</span> saved on this Mac. ${c.problem ? esc(c.problem) : live ? "Real-time stream is live." : "Real-time stream is connecting…"}</span>
+        <span class="spacer"></span><button id="keyReplace" type="button">Replace key</button></div>`
+    : (c.configured ? "" : `<div class="muted" style="font-size:13px;margin-bottom:12px">Optional. Connecting your Kalshi account gives the agent Kalshi's real-time stream instead of checking prices every few seconds.</div>`);
+  const rb = $("keyReplace"); if (rb) rb.onclick = () => { credEditing = true; renderCreds(); };
+}
+async function loadCreds() { try { credState = await api("/api/credentials"); renderCreds(); } catch (e) {} }
+$("keyCancel").onclick = () => { credEditing = false; $("keyMsg").textContent = ""; renderCreds(); };
+$("keyForm").onsubmit = async ev => {
+  ev.preventDefault();
+  const msg = $("keyMsg"), btn = $("keySave");
+  btn.disabled = true; msg.className = "msg"; msg.textContent = "Saving and checking with Kalshi…";
+  try {
+    const r = await api("/api/credentials", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({key_id: $("keyId").value, private_key: $("keyPem").value})});
+    if (!r.ok) { msg.className = "msg bad"; msg.textContent = r.error; return; }
+    $("keyPem").value = ""; $("keyId").value = "";
+    msg.className = "msg " + (r.verified === false ? "bad" : "good");
+    msg.textContent = r.note + (r.verified === false ? "" : " The data collector restarts now; the real-time stream should turn green in about 30 seconds.");
+    if (r.verified !== false) credEditing = false;
+    await loadCreds();
+  } catch (e) { msg.className = "msg bad"; msg.textContent = "Could not save (" + e.message + "). Is the agent running?"; }
+  finally { btn.disabled = false; }
+};
+
+refresh(); loadSide(); loadCreds();
+setInterval(loadCreds, 20000);
 setInterval(refresh, 5000);
 setInterval(loadSide, 20000);
 </script>
