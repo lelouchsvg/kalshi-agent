@@ -90,6 +90,7 @@ class KalshiStream(StreamFeed):
         self.depth = depth
         self.books: dict[str, LocalBook] = {}
         self.subscribed: frozenset[str] = frozenset()
+        self._last_ticker_row: dict[str, int] = {}
         self._seq: dict[int, int] = {}
         self._dirty: set[str] = set()
         self._last_book_save = 0.0
@@ -135,6 +136,12 @@ class KalshiStream(StreamFeed):
         elif kind == "ticker":
             ts = to_float(msg.get("ts"))
             received = now_ms()
+            self.stats.message(latency_ms=received - ts * 1000 if ts else None)
+            # Busy markets send many ticker updates a second; one row per market per
+            # second is plenty and keeps the database small on a laptop.
+            if received - self._last_ticker_row.get(ticker, 0) < 1000:
+                return
+            self._last_ticker_row[ticker] = received
             yb, ya = _price(msg, "yes_bid"), _price(msg, "yes_ask")
             self.db.insert("market_snapshots", {
                 "ticker": ticker, "ts_ms": received, "status": None, "yes_bid": yb, "yes_ask": ya,
@@ -144,7 +151,6 @@ class KalshiStream(StreamFeed):
                 "spread": None if yb is None or ya is None else round(ya - yb, 4),
                 "volume": _qty(msg, "volume"), "open_interest": _qty(msg, "open_interest"),
                 "seconds_to_close": None, "source": "ws"})
-            self.stats.message(latency_ms=received - ts * 1000 if ts else None)
         elif kind == "trade":
             ts = to_float(msg.get("ts"))
             tid = msg.get("trade_id")

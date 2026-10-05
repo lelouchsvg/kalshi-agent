@@ -186,6 +186,9 @@ def test_kalshi_stream_messages_and_sequence_gap(db):
         "market_ticker": "T1", "side": "yes", "price_dollars": "0.41", "delta_fp": "3"}})
     feed.on_message({"type": "ticker", "msg": {"market_ticker": "T1", "yes_bid_dollars": "0.41",
                                               "yes_ask_dollars": "0.45", "price_dollars": "0.43", "ts": 1}})
+    feed.on_message({"type": "ticker", "msg": {"market_ticker": "T1", "yes_bid_dollars": "0.42",
+                                              "yes_ask_dollars": "0.45", "ts": 1}})  # same second: not stored
+    assert db.query_one("SELECT COUNT(*) AS n FROM market_snapshots WHERE source='ws'")["n"] == 1
     feed.on_message({"type": "trade", "msg": {"market_ticker": "T1", "trade_id": "abc", "yes_price_dollars": "0.43",
                                              "count_fp": "2", "taker_side": "yes", "ts": 1}})
     feed.on_message({"type": "trade", "msg": {"market_ticker": "T1", "trade_id": "abc", "ts": 1}})  # duplicate
