@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Kalshi Agent</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231b1d22'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23fff' stroke-width='2.5' opacity='.28'/%3E%3Cpath d='M16 7a9 9 0 0 1 9 9' fill='none' stroke='%23f2b440' stroke-width='2.5' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='16' r='2' fill='%23fff'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -33,8 +34,9 @@ h2{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute
 .grid{display:grid;gap:16px}
 /* top bar */
 .top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:16px}
-.brand{font-weight:700;font-size:20px;letter-spacing:-.01em;display:flex;align-items:center;gap:10px}
-.brand svg{width:28px;height:28px}
+.brand{font-weight:700;font-size:19px;letter-spacing:-.02em;display:flex;align-items:center;gap:10px}
+.brand svg{width:30px;height:30px;flex:none}
+.brand-sub{font-weight:400;color:var(--muted);margin-left:6px}
 .pill{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:13px;background:var(--panel)}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
 .dot.ok{background:var(--ok);box-shadow:0 0 0 4px color-mix(in srgb,var(--ok) 20%,transparent)}
@@ -119,8 +121,13 @@ td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
 <div class="wrap">
   <div class="top">
     <div class="brand">
-      <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2.5" opacity=".25"/><path d="M16 3a13 13 0 0 1 11.3 6.5" fill="none" stroke="var(--pass)" stroke-width="2.5" stroke-linecap="round"/><path d="M16 16V8M16 16l5 3" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
-      Kalshi Agent
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <rect width="32" height="32" rx="8" fill="var(--ink)"/>
+        <circle cx="16" cy="16" r="9" fill="none" stroke="var(--bg)" stroke-width="2.5" opacity=".28"/>
+        <path d="M16 7a9 9 0 0 1 9 9" fill="none" stroke="var(--pass)" stroke-width="2.5" stroke-linecap="round"/>
+        <circle cx="16" cy="16" r="2" fill="var(--bg)"/>
+      </svg>
+      <span>Kalshi<span class="brand-sub">Agent</span></span>
     </div>
     <span class="mode" id="mode">…</span>
     <span class="pill"><span class="dot" id="onlineDot"></span><span id="online">connecting</span></span>
