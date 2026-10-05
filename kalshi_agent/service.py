@@ -33,6 +33,7 @@ from .health import run_health
 from .kalshi.client import KalshiAPIError, KalshiClient, build_client
 from .logging_setup import setup_logging
 from .safety import evaluate_mode, kill_status
+from .demo import DemoMirror
 from .paper import PaperTrader
 from .stream.coinbase import CoinbaseStream
 from .trainer import Trainer
@@ -53,6 +54,7 @@ class Collector:
         self._next = {k: 0.0 for k in ("discovery", "snapshot", "crypto", "trades", "clock",
                                        "health", "maintenance", "decide")}
         self.paper = PaperTrader(db, settings)
+        self.demo = DemoMirror(db, settings, health_ok=lambda: self._health_ok)
         self._stop_event = threading.Event()
         self._health_ok = False
         self.clock = ClockSync(db)
@@ -203,6 +205,11 @@ class Collector:
             except Exception as exc:     # a paper-trading bug must never stop data collection
                 log.exception("Paper trader error")
                 self.db.log_event("paper", "error", f"Paper trader error: {exc}")
+            try:
+                self.demo.step()
+            except Exception as exc:     # same for the demo mirror
+                log.exception("Demo mirror error")
+                self.db.log_event("demo", "error", f"Demo mirror error: {exc}"[:300])
         if t >= self._next["maintenance"]:
             self._next["maintenance"] = t + 3600
             self.maintenance()

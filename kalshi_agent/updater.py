@@ -108,12 +108,21 @@ def download(repo: str, sha: str, token: str | None, dest: Path, http=requests) 
     return new
 
 
-def check_locks(new: Path) -> None:
-    """An automatic update may never unlock DEMO or LIVE trading."""
-    text = (new / "kalshi_agent" / "safety.py").read_text()
-    for name in LOCKS:
-        found = re.findall(rf"^{name}\s*=\s*(\w+)", text, re.M)
-        if found != ["False"]:
+def _lock_values(root: Path) -> dict[str, list[str]]:
+    try:
+        text = (root / "kalshi_agent" / "safety.py").read_text()
+    except OSError:
+        text = ""
+    return {name: re.findall(rf"^{name}\s*=\s*(\w+)", text, re.M) for name in LOCKS}
+
+
+def check_locks(new: Path, current: Path | None = None) -> None:
+    """An automatic update may never unlock anything: LIVE must stay locked, and DEMO
+    may only stay as it is now (unlocking it takes a manual install)."""
+    now = _lock_values(current) if current else {}
+    for name, found in _lock_values(new).items():
+        allowed = [["False"]] + ([["True"]] if name != "LIVE_TRADING_UNLOCKED" and now.get(name) == ["True"] else [])
+        if found not in allowed:
             raise UpdateError(f"This update changes {name}. It needs a manual install and a review "
                               "with you, so it was not installed automatically.")
 
@@ -199,7 +208,7 @@ def check(settings: Settings, root: Path = ROOT, http=requests, tests=run_tests,
         if rejected.get("sha") == sha:
             return {**status, "state": "rejected", "message": rejected.get("message", "")}
         new = download(settings.update_repo, sha, token, root / "data" / "update_staging", http)
-        check_locks(new)
+        check_locks(new, root)
         ok, summary = tests(root, new)
         if not ok:
             raise UpdateError(f"New version failed its safety tests ({summary}); kept the current version.")

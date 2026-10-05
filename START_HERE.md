@@ -40,6 +40,12 @@ including the collected data.
   data; the models will be trained only on what was actually recorded.
 - It uses roughly 150–250 MB of memory. If the Mac feels slow, Stop it and tell Claude.
 
+## Demo exchange (Phase 7, fake money)
+With a key from a free practice account at demo.kalshi.co (saved in the dashboard's **Demo
+exchange** box), each paper trade is also placed as a real order on Kalshi's demo exchange, at
+most 2 contracts and only if the demo price is within 2¢ of the paper price. This tests order
+sending, fills, fees and settlement end to end. It can never reach your real account.
+
 ## Updates install themselves
 Once a read-only GitHub token is saved in the dashboard's **Automatic updates** box, the agent
 checks GitHub every 30 minutes. It runs the safety tests on any new version and installs it

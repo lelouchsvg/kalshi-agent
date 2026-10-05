@@ -57,10 +57,20 @@ def test_kill_switch_blocks_live_gate(db, monkeypatch):
     assert gate.reasons == ["G6_not_killed_and_healthy"]
 
 
-def test_demo_locked_in_phase_1(db):
-    gate = evaluate_mode(TradingMode.DEMO, config_mode=TradingMode.DEMO, kalshi_env="demo",
-                         has_credentials=True, db=db, killed=False, health_ok=True, env={})
-    assert not gate.allowed and "demo_code_unlocked" in gate.reasons
+def test_demo_only_on_demo_exchange_with_credentials(db):
+    ok = evaluate_mode(TradingMode.DEMO, config_mode=TradingMode.DEMO, kalshi_env="demo",
+                       has_credentials=True, db=db, killed=False, health_ok=True, env={})
+    assert ok.allowed
+    with pytest.raises(PermissionError):
+        authorize_order(ok, PROD)          # a demo permit can never point at the real exchange
+    for kw in ({"kalshi_env": "prod"}, {"has_credentials": False}, {"killed": True}, {"health_ok": False}):
+        args = {"kalshi_env": "demo", "has_credentials": True, "killed": False, "health_ok": True, **kw}
+        assert not evaluate_mode(TradingMode.DEMO, config_mode=TradingMode.DEMO, db=db, env={}, **args).allowed
+
+
+def test_live_still_locked_in_code():
+    from kalshi_agent import safety
+    assert safety.LIVE_TRADING_UNLOCKED is False
 
 
 def test_paper_and_watch_never_get_order_permits():

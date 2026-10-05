@@ -13,7 +13,8 @@ from kalshi_agent.db import open_db  # noqa: E402
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
     for k in ("TRADING_MODE", "KILL_SWITCH", "KALSHI_LIVE_CONFIRM", "KALSHI_API_KEY_ID",
-              "KALSHI_PRIVATE_KEY_PATH", "DASHBOARD_PASSWORD"):
+              "KALSHI_PRIVATE_KEY_PATH", "DASHBOARD_PASSWORD",
+              "KALSHI_DEMO_API_KEY_ID", "KALSHI_DEMO_PRIVATE_KEY_PATH"):
         monkeypatch.delenv(k, raising=False)
 
 

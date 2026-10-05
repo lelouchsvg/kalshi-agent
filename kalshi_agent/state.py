@@ -16,9 +16,10 @@ from .db import Database, now_ms
 from .modes import TradingMode
 from .safety import LIVE_TRADING_UNLOCKED, kill_status
 
-PHASE = 5
+PHASE = 7
 PHASE_NOTE = ("Paper trading with fake money against live Kalshi prices. The agent buys only when an approved "
               "model shows an edge after fees and every risk check passes; otherwise it passes. "
+              "With a demo key, each paper trade is also copied onto Kalshi's fake-money demo exchange. "
               "Real-money trading is locked.")
 
 
@@ -280,6 +281,26 @@ def open_positions(db: Database, mode: str = "PAPER") -> list[dict[str, Any]]:
 # What has to be true before real money is even discussed. LIVE stays locked in code
 # regardless; this only tells you whether the evidence is there.
 READINESS = {"min_trades": 200, "min_days": 14, "min_profit_factor": 1.2}
+
+
+def demo_info(db: Database, s: Settings) -> dict[str, Any]:
+    """Phase 7 demo-exchange mirror: is it on, and how do its real fills compare with paper?"""
+    hb = db.query_one("SELECT ts_ms, info_json FROM heartbeats WHERE component='demo'")
+    info = _json(hb["info_json"], {}) if hb else {}
+    counts = {r["status"]: r["n"] for r in db.query(
+        "SELECT status, COUNT(*) AS n FROM orders WHERE mode='DEMO' GROUP BY status")}
+    gaps = db.query("""SELECT d.entry_price - p.entry_price AS gap FROM trades d
+                       JOIN orders o ON o.mode='DEMO' AND o.ticker=d.ticker AND o.status IN ('filled','partial')
+                       JOIN trades p ON p.mode='PAPER' AND o.client_order_id = 'demo-p' || p.id
+                       WHERE d.mode='DEMO'""")
+    last_skip = db.query_one("SELECT reject_reason, status FROM orders WHERE mode='DEMO' AND status IN "
+                             "('skipped','rejected') ORDER BY created_ms DESC LIMIT 1")
+    return {"active": bool(info.get("active")), "note": info.get("note") or "",
+            "balance": info.get("balance"), "orders": counts,
+            "sent": sum(n for k, n in counts.items() if k != "skipped"),
+            "avg_gap": (sum(g["gap"] for g in gaps) / len(gaps)) if gaps else None, "n_gaps": len(gaps),
+            "last_problem": dict(last_skip) if last_skip else None,
+            "configured": s.has_demo_credentials}
 
 
 def live_readiness(db: Database, s: Settings) -> dict[str, Any]:
