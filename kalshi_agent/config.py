@@ -51,7 +51,9 @@ class Settings:
         "BTC": "KXBTC15M", "ETH": "KXETH15M", "SOL": "KXSOL15M"})
     risk: RiskLimits = field(default_factory=RiskLimits)
     paper_starting_balance: float = 1000.0
-    model_version: str = "NONE"
+    model_version: str = "AUTO"
+    paper_slippage: float = 0.01
+    decision_interval_s: int = 10
     discovery_interval_s: int = 60
     snapshot_interval_s: int = 10
     crypto_interval_s: int = 5
@@ -143,11 +145,12 @@ def load_settings(config_path: Path | None = None, env: dict[str, str] | None = 
     risk = raw.get("risk") or {}
     s.risk = RiskLimits(**{k: v for k, v in risk.items() if k in RiskLimits.__dataclass_fields__})
     s.paper_starting_balance = float((raw.get("paper") or {}).get("starting_balance", 1000.0))
-    s.model_version = str((raw.get("model") or {}).get("version", "NONE"))
+    s.model_version = str((raw.get("model") or {}).get("version", "AUTO")).upper()
+    s.paper_slippage = float((raw.get("paper") or {}).get("slippage", 0.01))
     col = raw.get("collection") or {}
     for key in ("discovery_interval_s", "snapshot_interval_s", "crypto_interval_s",
                 "health_interval_s", "orderbook_depth", "trades_interval_s", "index_interval_s",
-                "clock_interval_s", "backfill_days", "orderbook_levels_keep_days"):
+                "clock_interval_s", "backfill_days", "orderbook_levels_keep_days", "decision_interval_s"):
         if key in col:
             setattr(s, key, int(col[key]))
     if "max_requests_per_second" in col:

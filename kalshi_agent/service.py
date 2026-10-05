@@ -1,9 +1,10 @@
 """The always-on collector.
 
+Phase 5: paper trades with fake money against live order books (never real orders).
 Phase 2: streams real-time crypto prices, computes a stand-in for the settlement
 index, records Kalshi markets, order books and public trades, checks the Mac's
 clock, and downloads recent history in the background. It contains no trading
-logic, so it can never place an order.
+logic that can reach Kalshi's order endpoints, so it can never place a real order.
 
 Threads:
   main loop      discovery, REST snapshots, trades, clock, health, maintenance
@@ -11,6 +12,7 @@ Threads:
   index_proxy    median of four exchanges + 60-second average (settlement stand-in)
   backfill       settled markets and one-minute candles from the past N days
   kalshi_ws      real-time Kalshi books; only when an API key is configured
+  trainer        retrains and validates the model every few hours
 """
 from __future__ import annotations
 
@@ -31,7 +33,9 @@ from .health import run_health
 from .kalshi.client import KalshiAPIError, KalshiClient, build_client
 from .logging_setup import setup_logging
 from .safety import evaluate_mode, kill_status
+from .paper import PaperTrader
 from .stream.coinbase import CoinbaseStream
+from .trainer import Trainer
 
 log = logging.getLogger("collector")
 
@@ -47,7 +51,8 @@ class Collector:
         self.active: list[str] = []
         self.tradeable: list[str] = []
         self._next = {k: 0.0 for k in ("discovery", "snapshot", "crypto", "trades", "clock",
-                                       "health", "maintenance")}
+                                       "health", "maintenance", "decide")}
+        self.paper = PaperTrader(db, settings)
         self._stop_event = threading.Event()
         self._health_ok = False
         self.clock = ClockSync(db)
@@ -74,6 +79,7 @@ class Collector:
             self.threads.append(Backfill(self.db, slow_client, self._stop_event, self.s.symbols,
                                          self.series_map, days=self.s.backfill_days,
                                          paused_fn=self.paused))
+        self.threads.append(Trainer(self.db, self.s, self._stop_event, paused_fn=self.paused))
         kalshi_note = self._kalshi_stream()
         self.db.heartbeat("feed:kalshi_ws", {"connected": False, "note": kalshi_note})
         for t in self.threads:
@@ -190,6 +196,13 @@ class Collector:
                                 crypto_probe=lambda: self.provider.latest("BTC"), killed=ks.killed)
             self._health_ok = report.trading_allowed
             self.update_mode()
+        if t >= self._next["decide"]:
+            self._next["decide"] = t + self.s.decision_interval_s
+            try:
+                self.paper.step()
+            except Exception as exc:     # a paper-trading bug must never stop data collection
+                log.exception("Paper trader error")
+                self.db.log_event("paper", "error", f"Paper trader error: {exc}")
         if t >= self._next["maintenance"]:
             self._next["maintenance"] = t + 3600
             self.maintenance()

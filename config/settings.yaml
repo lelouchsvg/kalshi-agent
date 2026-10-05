@@ -33,16 +33,18 @@ risk:
   max_spread: 0.06              # skip markets with a wider bid/ask spread
 
 paper:
-  starting_balance: 1000.0
+  starting_balance: 1000.0      # fake dollars
+  slippage: 0.01                # assume we pay 1¢ worse than the quoted price
 
 model:
-  version: NONE                 # no model exists yet; system will PASS
+  version: AUTO                 # AUTO = newest model approved for paper trading; NONE = always PASS
 
 collection:
   discovery_interval_s: 60
   snapshot_interval_s: 10
   crypto_interval_s: 5
   health_interval_s: 30
+  decision_interval_s: 10       # how often the paper trader re-evaluates each market
   orderbook_depth: 10
   trades_interval_s: 15         # public Kalshi trades
   index_interval_s: 5           # settlement-index stand-in (4 exchanges)

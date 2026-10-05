@@ -113,13 +113,18 @@ def run_health(db: Database, settings, *, api_probe: Callable[[], object] | None
     checks.append(_clock_check(db, settings))
     checks.extend(_feed_checks(db))
 
+    from .trainer import active_model
     model = settings.model_version
     if model in ("", "NONE"):
-        checks.append(Check("model", WARN, "no model trained yet: every signal will be PASS"))
+        checks.append(Check("model", WARN, "model turned off in settings: every signal will be PASS"))
     else:
-        row = db.query_one("SELECT status FROM model_versions WHERE version=?", (model,))
-        checks.append(Check("model", OK if row else CRIT,
-                            f"{model} ({row['status']})" if row else f"{model} not found in registry"))
+        found = active_model(db, model)
+        if found:
+            checks.append(Check("model", OK, f"{found[0]} approved for paper trading"))
+        elif model == "AUTO":
+            checks.append(Check("model", WARN, "no approved model yet: every signal will be PASS"))
+        else:
+            checks.append(Check("model", CRIT, f"{model} not found or not approved"))
 
     disk = shutil.disk_usage(settings.db_path.parent if settings.db_path.parent.exists() else "/")
     disk_pct = disk.used / disk.total * 100

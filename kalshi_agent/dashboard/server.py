@@ -44,6 +44,7 @@ class DashboardApp:
             "/api/signals": lambda u: state.recent_signals(self.db),
             "/api/research": lambda u: state.research(self.db),
             "/api/quality": lambda u: state.data_quality(self.db, self.s),
+            "/api/model": lambda u: state.model_info(self.db, self.s),
             "/api/health": lambda u: state.status(self.db, self.s)["health"] or {"overall": "unknown", "checks": []},
         }
 
@@ -73,6 +74,8 @@ class DashboardApp:
             "events": state.events(self.db, 25),
             "crypto": {sym: state.crypto_series(self.db, sym, 60) for sym in self.s.symbols},
             "feeds": state.feeds(self.db, self.s),
+            "positions": state.open_positions(self.db, "PAPER"),
+            "readiness": state.live_readiness(self.db, self.s),
         }
 
     def post(self, path: str, user: str) -> dict[str, Any]:

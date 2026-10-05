@@ -82,10 +82,10 @@ def test_cli_commands(settings, db, monkeypatch, capsys):
     from kalshi_agent import cli
     monkeypatch.setattr(cli, "load_settings", lambda: settings)
     for cmd in ("status", "health", "markets", "signals", "trades", "performance", "research",
-                "costs", "feeds", "data", "stop", "start", "kill", "unkill", "paper", "backtest"):
+                "costs", "feeds", "data", "stop", "start", "kill", "unkill", "paper", "model", "backtest"):
         assert cli.main([cmd]) == 0, cmd
     out = capsys.readouterr().out
-    assert "Phase 2" in out and "No paper trades yet" in out and "Phase 4" in out
+    assert "Phase 5" in out and "No paper trades yet" in out and "Waiting for data" in out
 
 
 def test_dashboard_phase2_panels(settings, dash):

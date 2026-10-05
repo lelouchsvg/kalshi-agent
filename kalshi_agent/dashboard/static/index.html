@@ -104,6 +104,9 @@ td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
 .bar i{display:block;height:100%}
 .qrow{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:6px 0;border-bottom:1px solid var(--line)}
 .qrow:last-child{border-bottom:none}
+.crit{display:grid;grid-template-columns:16px 1fr;gap:8px;font-size:13px;padding:6px 0;border-bottom:1px solid var(--line)}
+.crit .bar{height:6px;margin-top:5px}
+.tag{font-family:var(--mono);font-size:10px;letter-spacing:.08em;padding:1px 6px;border-radius:4px;border:1px solid var(--line);color:var(--muted)}
 .foot{margin-top:18px;font-size:12px;color:var(--muted);text-align:center}
 @media (max-width:900px){
   .hero,.perf,.three,.feedrow{grid-template-columns:1fr}
@@ -157,6 +160,11 @@ td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
       <h2>Underlying prices, last hour</h2>
       <div class="spark" id="sparks"></div>
     </div>
+  </div>
+
+  <div class="grid perf" style="margin-top:16px">
+    <div class="panel"><h2>Open paper positions</h2><div id="positions"></div></div>
+    <div class="panel"><h2>Ready for real money?</h2><div id="readiness"></div></div>
   </div>
 
   <div class="grid feedrow" style="margin-top:16px">
@@ -297,7 +305,11 @@ function render(d) {
   const gates = d.gates, lit = gates.filter(g => g.ok).length, allOk = lit === gates.length;
   $("verdict").textContent = allOk ? "READY" : "PASS";
   $("verdict").classList.toggle("buy", allOk);
-  $("verdictWhy").textContent = allOk ? "Every gate is green." : `${lit} of ${gates.length} gates green. With no proven edge, the agent does not trade.`;
+  const bought = d.markets.some(m => m.signal === "BUY");
+  $("verdict").textContent = bought ? "BUY" : allOk ? "READY" : "PASS";
+  $("verdict").classList.toggle("buy", bought || allOk);
+  $("verdictWhy").textContent = bought ? "Paper trade placed (fake money)." : allOk ? "Every gate is green." :
+    `${lit} of ${gates.length} gates green. Without an edge after fees, the agent passes.`;
   $("gates").innerHTML = gates.map(g => `<div class="gate"><span class="lamp ${g.ok ? "on" : ""}"></span><div><b>${esc(g.gate)}</b><span>${esc(g.why)}</span></div></div>`).join("");
 
   const live = d.markets.filter(m => (m.seconds_to_close ?? 1) > -300);
@@ -305,6 +317,16 @@ function render(d) {
     `<div class="empty">No open 15-minute markets found yet. ${s.online ? "Kalshi may be between windows; the next scan runs within a minute." : "The data collector is not running."}</div>`;
 
   renderPerf();
+
+  const pos = d.positions || [];
+  $("positions").innerHTML = pos.length ? `<table><tr><th>Market</th><th>Side</th><th>Qty</th><th>Paid</th><th>Now</th><th>Open P&amp;L</th><th>Closes</th></tr>${
+    pos.map(p => `<tr><td class="mono">${esc(p.ticker)}</td><td>${esc(p.side.toUpperCase())}</td><td class="mono">${p.count}</td><td class="mono">${cents(p.entry_price)}</td><td class="mono">${cents(p.mark)}</td><td class="mono ${p.unrealized >= 0 ? "pos" : "neg"}">${money(p.unrealized)}</td><td class="mono">${p.close_ms ? hhmm(p.close_ms) : "—"}</td></tr>`).join("")}</table><div class="muted" style="font-size:12px;margin-top:8px">PAPER · fake money · held until the market settles</div>`
+    : `<div class="empty">No open paper positions. The agent buys only when the model finds an edge of at least ${Math.round((s.settings.risk.min_edge || 0) * 100)}¢ after fees.</div>`;
+
+  const rd = d.readiness;
+  $("readiness").innerHTML = rd.criteria.map(c => `<div class="crit"><span class="lamp ${c.ok ? "on" : ""}" style="margin-top:3px"></span><div>${esc(c.name)}<span class="muted mono" style="float:right;font-size:12px">${esc(c.value)}</span>
+      <div class="bar"><i style="width:${Math.round(c.progress * 100)}%;background:${c.ok ? "var(--ok)" : "var(--pass)"}"></i></div></div></div>`).join("") +
+    `<div class="muted" style="font-size:12px;margin-top:10px">${esc(rd.note)}</div>`;
 
   $("sparks").innerHTML = Object.entries(d.crypto).map(([sym, pts]) => {
     const lastP = pts.length ? pts[pts.length - 1][1] : null, first = pts.length ? pts[0][1] : null;
@@ -370,14 +392,28 @@ function renderQuality(q) {
 
 async function loadSide() {
   try {
-    const [trades, research, q] = await Promise.all([api("/api/trades"), api("/api/research"), api("/api/quality")]);
+    const [trades, research, q, mi] = await Promise.all([api("/api/trades"), api("/api/research"), api("/api/quality"), api("/api/model")]);
     renderQuality(q);
     $("trades").innerHTML = trades.length ? `<table><tr><th>Mode</th><th>Market</th><th>Side</th><th>Entry</th><th>Exit</th><th>Model P</th><th>Market P</th><th>Edge</th><th>P&amp;L</th><th>Why</th></tr>${
       trades.map(t => `<tr><td class="mono">${esc(t.mode)}</td><td class="mono">${esc(t.ticker)}</td><td>${esc(t.side)}</td><td class="mono">${cents(t.entry_price)}</td><td class="mono">${cents(t.exit_price)}</td><td class="mono">${pct(t.p_yes_at_entry)}</td><td class="mono">${pct(t.market_price_at_entry)}</td><td class="mono">${pct(t.edge_at_entry)}</td><td class="mono ${t.pnl >= 0 ? "pos" : "neg"}">${money(t.pnl)}</td><td>${esc(t.reason)}</td></tr>`).join("")}</table>`
-      : `<div class="empty">No trades yet. Paper trading starts in Phase 5, and only when the trade gate is fully green.</div>`;
-    const r = research;
-    $("research").innerHTML = (r.models.length ? r.models.map(m => `<div class="cost"><span class="mono">${esc(m.version)}</span><span>${esc(m.status)}</span></div>`).join("") : `<div class="muted" style="font-size:13px">No models yet. The first baseline model is trained in Phase 3, once enough settled markets are collected.</div>`) +
-      `<div class="muted" style="font-size:12px;margin-top:10px">Experiments: ${r.experiments.length} · Backtests: ${r.backtests.length}</div>`;
+      : `<div class="empty">No trades yet. Paper trades appear here once an approved model finds an edge and every gate is green.</div>`;
+    const r = research, a = mi.active;
+    let html = "";
+    if (a) {
+      const t = a.metrics.test || {}, b = a.metrics.backtest || {};
+      const f4 = v => v == null ? "—" : v.toFixed(4);
+      html += `<div class="qrow"><span>Active model</span><span class="mono">${esc(a.version)}</span></div>
+        <div class="qrow" title="Brier score on markets the model never saw. Lower is better; the market's own prices are the bar to beat."><span>Accuracy on unseen markets</span><span class="mono">${f4(t.brier)} vs market ${f4(t.market_brier)}</span></div>
+        <div class="qrow"><span>Calibration error</span><span class="mono">${t.calibration?.ece != null ? (t.calibration.ece * 100).toFixed(1) + "%" : "—"}</span></div>
+        <div class="qrow"><span>Backtest <span class="tag">SIMULATED</span></span><span class="mono">${b.n_trades ?? 0} trades · ${money(b.pnl)}</span></div>
+        <div class="muted" style="font-size:12px">Trained on ${a.metrics.n_train_markets} markets, tested on ${a.metrics.n_test_markets} later ones it never saw.</div>`;
+    } else {
+      const tr = mi.trainer;
+      html += `<div class="muted" style="font-size:13px">${esc(tr?.message || "No approved model yet. Training starts once enough past markets are downloaded.")}</div>`;
+    }
+    if (mi.latest && (!a || mi.latest.version !== a.version)) html += `<div class="muted" style="font-size:12px;margin-top:8px">Latest attempt ${esc(mi.latest.version)}: ${esc(mi.latest.status)}${mi.latest.notes ? " (" + esc(mi.latest.notes) + ")" : ""}</div>`;
+    html += `<div class="muted" style="font-size:12px;margin-top:10px">Models: ${r.models.length} · Experiments: ${r.experiments.length} · Backtests: ${r.backtests.length}</div>`;
+    $("research").innerHTML = html;
   } catch (e) {}
 }
 

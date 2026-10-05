@@ -15,8 +15,9 @@
   kill         engage the emergency kill switch
   unkill       release the dashboard kill switch
   discover     scan Kalshi once and print what was found
-  paper        start paper trading (Phase 5)
-  backtest     run a backtest (Phase 4)
+  paper        open paper positions and readiness for real money
+  model        the current model and how it scored on unseen markets
+  backtest     retrain the model now and backtest it on unseen markets (SIMULATED)
 """
 from __future__ import annotations
 
@@ -145,9 +146,36 @@ def main(argv: list[str] | None = None) -> int:
         found = discover(build_client(s), db, s.symbols, dict(s.series))
         out({k: [m.ticker for m in v] for k, v in found.items()},
             "\n".join(f"{k}: {len(v)} open market(s) " + ", ".join(m.ticker for m in v[:3]) for k, v in found.items()))
-    elif cmd in ("paper", "backtest"):
-        phase = 5 if cmd == "paper" else 4
-        out({"ok": False}, f"'{cmd}' is built in Phase {phase}. Right now the system collects data so it has something real to test on.")
+    elif cmd == "paper":
+        pos = state.open_positions(db, "PAPER")
+        rd = state.live_readiness(db, s)
+        lines = [f"Open paper positions: {len(pos)}"]
+        lines += [f"  {p_['ticker']} {p_['side'].upper()} x{p_['count']:.0f} @ {_c(p_['entry_price'])}" for p_ in pos]
+        lines.append("Readiness for real money (all must be green; LIVE stays locked in code regardless):")
+        lines += [f"  [{'x' if c['ok'] else ' '}] {c['name']}: {c['value']}" for c in rd["criteria"]]
+        out({"positions": pos, "readiness": rd}, "\n".join(lines))
+    elif cmd == "model":
+        mi = state.model_info(db, s)
+        act = mi["active"]
+        if not act:
+            tr = mi["trainer"] or {}
+            out(mi, "No approved model yet. " + (tr.get("message") or "Training starts once enough history is downloaded."))
+        else:
+            t = act["metrics"].get("test", {})
+            b = act["metrics"].get("backtest", {})
+            out(mi, f"{act['version']} ({act['status']}) trained on {act['metrics'].get('n_train_markets')} markets\n"
+                    f"Unseen markets: model Brier {t.get('brier', 0):.4f} vs market {t.get('market_brier', 0):.4f} "
+                    f"(lower is better)\nBacktest (SIMULATED): {b.get('n_trades')} trades, P&L ${b.get('pnl', 0):+.2f}")
+    elif cmd in ("backtest", "train"):
+        from .trainer import train_once
+        r = train_once(db, s)
+        if r["state"] != "trained":
+            out(r, r["message"])
+        else:
+            m = r["metrics"]
+            out(r, f"{r['version']}: {r['status']}. Unseen-market Brier {m['test']['brier']:.4f} vs market "
+                   f"{m['test']['market_brier']:.4f}. SIMULATED backtest: {m['backtest']['n_trades']} trades, "
+                   f"P&L ${m['backtest']['pnl']:+.2f}." + (f" Reasons: {'; '.join(m['reasons'])}" if m["reasons"] else ""))
     else:
         p.print_help()
         return 2

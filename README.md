@@ -6,15 +6,15 @@ LIVE trading is locked in code.
 
 New here? Read [START_HERE.md](START_HERE.md).
 
-## Status: Phase 2 of 9
+## Status: paper trading (Phases 3–5 built)
 
 | Phase | What | State |
 |---|---|---|
 | 1 | Config, logging, database, Kalshi client, market discovery, dashboard, health, kill switch | built |
-| 2 | Coinbase price stream, settlement-index stand-in, Kalshi trades, history backfill, clock check, point-in-time reads, Kalshi stream (with key) | **built, 63 tests passing** |
-| 3 | Features, logistic-regression baseline, calibration, Brier/log-loss | next |
-| 4 | Event-driven backtester, walk-forward | |
-| 5 | Signal engine, risk engine, realistic paper execution, P&L | |
+| 2 | Coinbase price stream, settlement-index stand-in, Kalshi trades, history backfill, clock check, point-in-time reads, Kalshi stream (with key) | built |
+| 3 | Features, logistic-regression baseline, calibration, Brier/log-loss | built (`model.py`, `dataset.py`, `trainer.py`) |
+| 4 | Backtester on held-out later markets (time split + embargo) | built (`backtest.py`) |
+| 5 | Signal engine, risk engine, paper execution on live books, P&L | **built, 73 tests passing** (`strategy.py`, `risk.py`, `paper.py`) |
 | 6 | LLM research agent (hypotheses → experiments → promote/reject) | |
 | 7 | Kalshi demo exchange | locked (`DEMO_TRADING_UNLOCKED = False`) |
 | 8 | Micro live | locked (`LIVE_TRADING_UNLOCKED = False`) |
@@ -72,3 +72,17 @@ Every row carries the time it arrived on this machine (`received_ms`, or `ts_ms`
 on arrival) as well as the source's own timestamp where there is one. Features and backtests read
 through `timeseries.py`, which filters on arrival time; candles count only after their period ends.
 The clock check flags the Mac drifting more than 1 s from an exchange clock.
+
+## How paper trading works
+1. The trainer (every 6 h) builds point-in-time examples from downloaded history, trains a
+   logistic model on older markets and tests it on later ones it never saw.
+2. It is approved for paper trading (`status = paper`) only if it is at least as accurate as the
+   market's own prices (Brier) and calibrated at least as well. Otherwise it is rejected, and the
+   agent keeps passing. Code never writes `promoted_live`.
+3. Every 10 s the paper engine scores each open market from live data, applies `strategy.decide`
+   (the same rule the backtest uses: edge after fees and 1¢ slippage ≥ `min_edge`, spread ≤
+   `max_spread`), then `risk.check`, then simulates a taker fill at the real best ask, capped at the
+   size resting there. Positions settle at $1/$0 from Kalshi's official result.
+4. The dashboard's "Ready for real money?" scorecard tracks the evidence (200+ trades, 14+ days,
+   profitable after fees, profit factor ≥ 1.2, model beat the market on settled markets, drawdown
+   within limit). LIVE stays locked in code regardless.

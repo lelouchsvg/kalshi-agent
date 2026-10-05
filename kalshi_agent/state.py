@@ -16,9 +16,10 @@ from .db import Database, now_ms
 from .modes import TradingMode
 from .safety import LIVE_TRADING_UNLOCKED, kill_status
 
-PHASE = 2
-PHASE_NOTE = ("Phase 2: streaming live prices and downloading past markets to learn from. No model, "
-              "signal or trading engine exists yet, so every decision is PASS.")
+PHASE = 5
+PHASE_NOTE = ("Paper trading with fake money against live Kalshi prices. The agent buys only when an approved "
+              "model shows an edge after fees and every risk check passes; otherwise it passes. "
+              "Real-money trading is locked.")
 
 
 def _json(v: str | None, default: Any = None) -> Any:
@@ -84,7 +85,8 @@ def markets(db: Database, s: Settings) -> list[dict[str, Any]]:
         r["model_p_yes"] = sig["p_yes"] if sig else None
         r["edge"] = sig["edge"] if sig else None
         r["signal"] = sig["action"] if sig else "PASS"
-        r["signal_reason"] = sig["explanation"] if sig else "No model yet (arrives in Phase 3)"
+        r["signal_reason"] = sig["explanation"] if sig else "Not evaluated yet"
+        r["signal_code"] = sig["reason_code"] if sig else None
         r["spread_ok"] = r["spread"] is not None and r["spread"] <= s.risk.max_spread
     return rows
 
@@ -199,28 +201,128 @@ def data_stats(db: Database) -> dict[str, Any]:
 
 
 def trade_gates(db: Database, s: Settings) -> list[dict[str, Any]]:
-    """The eight conditions every trade needs (spec section 38), evaluated now."""
+    """The eight conditions every trade needs (spec section 38), evaluated now from the
+    paper trader's latest decisions."""
+    from .risk import account_state
+    from .trainer import active_model
     health = _json(db.get_control("last_health"), {}) or {}
     checks = {c["name"]: c["status"] for c in health.get("checks", [])}
     data_ok = checks.get("market_data_freshness") == "ok" and checks.get("crypto_data_freshness") == "ok"
-    model_ok = checks.get("model") == "ok"
+    model = active_model(db, s.model_version)
+    recent = db.query("""SELECT s.* FROM signals s JOIN (SELECT ticker, MAX(ts_ms) AS mx FROM signals
+                         WHERE ts_ms > ? GROUP BY ticker) t ON s.ticker = t.ticker AND s.ts_ms = t.mx""",
+                      (now_ms() - 120_000,))
+    edges = [r["edge"] for r in recent if r["edge"] is not None]
+    best = max(edges) if edges else None
     spread_row = db.query_one("""SELECT MIN(spread) AS s FROM market_snapshots
                                  WHERE ts_ms > ? AND spread IS NOT NULL""", (now_ms() - 60_000,))
     spread_ok = bool(spread_row and spread_row["s"] is not None and spread_row["s"] <= s.risk.max_spread)
     ks = kill_status(db, s.kill_switch, s.kill_file)
     health_ok = bool(health) and health.get("overall") != "critical" and not ks.killed
+    hb = db.query_one("SELECT ts_ms FROM heartbeats WHERE component='paper'")
+    engine_ok = bool(hb and now_ms() - hb["ts_ms"] < 60_000)
+    st = account_state(db, "PAPER", s.paper_starting_balance)
+    r = s.risk
+    risk_block = ("daily loss limit hit" if st.realized_today <= -r.max_daily_loss else
+                  "drawdown limit hit" if st.drawdown >= r.max_drawdown else
+                  "losing streak pause" if st.consecutive_losses >= r.max_consecutive_losses else
+                  "max open positions" if len(st.open_tickers) >= r.max_open_positions else None)
     return [
         {"gate": "Reliable data", "ok": data_ok, "why": "market and crypto data fresh" if data_ok else "data missing or stale"},
-        {"gate": "Valid model prediction", "ok": model_ok, "why": "model loaded" if model_ok else "no trained model (Phase 3)"},
-        {"gate": "Positive expected value", "ok": False, "why": "needs a model first"},
-        {"gate": "Sufficient edge", "ok": False, "why": f"needs edge ≥ {s.risk.min_edge:.2f} after fees"},
+        {"gate": "Valid model prediction", "ok": bool(model),
+         "why": f"{model[0]} approved" if model else "no approved model yet"},
+        {"gate": "Positive expected value", "ok": best is not None and best > 0,
+         "why": f"best edge now {best * 100:+.1f}¢ after fees" if best is not None else "no prediction yet"},
+        {"gate": "Sufficient edge", "ok": best is not None and best >= r.min_edge,
+         "why": f"needs ≥ {r.min_edge * 100:.0f}¢ after fees"},
         {"gate": "Acceptable spread", "ok": spread_ok,
-         "why": f"tightest spread within {s.risk.max_spread:.2f}" if spread_ok else "no market with an acceptable spread"},
-        {"gate": "Execution conditions", "ok": False, "why": "execution engine arrives in Phase 5"},
-        {"gate": "Risk approval", "ok": False, "why": "risk engine arrives in Phase 5"},
+         "why": f"tightest spread within {r.max_spread * 100:.0f}¢" if spread_ok else "no market with an acceptable spread"},
+        {"gate": "Execution conditions", "ok": engine_ok,
+         "why": "paper engine running on live books" if engine_ok else "paper engine not running"},
+        {"gate": "Risk approval", "ok": risk_block is None, "why": risk_block or "within all limits"},
         {"gate": "System health", "ok": health_ok, "why": "healthy" if health_ok else
          ("kill switch engaged" if ks.killed else "health check failing or not run yet")},
     ]
+
+
+def model_info(db: Database, s: Settings) -> dict[str, Any]:
+    from .trainer import active_model
+    found = active_model(db, s.model_version)
+    latest = db.query_one("SELECT version, created_ms, status, metrics_json, notes FROM model_versions "
+                          "ORDER BY created_ms DESC LIMIT 1")
+    active = None
+    if found:
+        row = db.query_one("SELECT version, created_ms, status, metrics_json, notes, train_start_ms, test_end_ms "
+                           "FROM model_versions WHERE version=?", (found[0],))
+        active = {**row, "metrics": _json(row.pop("metrics_json"), {})}
+    if latest:
+        latest["metrics"] = _json(latest.pop("metrics_json"), {})
+    return {"active": active, "latest": latest, "trainer": _json(db.get_control("trainer"), None)}
+
+
+def open_positions(db: Database, mode: str = "PAPER") -> list[dict[str, Any]]:
+    rows = db.query("""SELECT t.ticker, t.symbol, t.side, t.count, t.entry_price, t.fees, t.entry_ms,
+                              t.p_yes_at_entry, t.edge_at_entry, m.close_ms
+                       FROM trades t LEFT JOIN markets m ON m.ticker = t.ticker
+                       WHERE t.mode=? AND t.pnl IS NULL ORDER BY t.entry_ms DESC""", (mode,))
+    for r in rows:
+        ob = db.query_one("SELECT best_yes_bid, best_yes_ask FROM orderbook_snapshots WHERE ticker=? "
+                          "ORDER BY ts_ms DESC LIMIT 1", (r["ticker"],))
+        bid = None
+        if ob:
+            bid = ob["best_yes_bid"] if r["side"] == "yes" else (
+                None if ob["best_yes_ask"] is None else round(1 - ob["best_yes_ask"], 4))
+        r["mark"] = bid
+        r["unrealized"] = None if bid is None else r["count"] * (bid - r["entry_price"]) - (r["fees"] or 0)
+    return rows
+
+
+# What has to be true before real money is even discussed. LIVE stays locked in code
+# regardless; this only tells you whether the evidence is there.
+READINESS = {"min_trades": 200, "min_days": 14, "min_profit_factor": 1.2}
+
+
+def live_readiness(db: Database, s: Settings) -> dict[str, Any]:
+    trades = db.query("SELECT pnl, entry_ms, exit_ms, p_yes_at_entry, market_price_at_entry, side, result "
+                      "FROM trades WHERE mode='PAPER' AND pnl IS NOT NULL ORDER BY exit_ms")
+    n = len(trades)
+    pnl = sum(t["pnl"] for t in trades)
+    wins = sum(t["pnl"] for t in trades if t["pnl"] > 0)
+    losses = -sum(t["pnl"] for t in trades if t["pnl"] <= 0)
+    pf = wins / losses if losses > 0 else (None if not n else float("inf"))
+    days = (now_ms() - trades[0]["entry_ms"]) / 86_400_000 if trades else 0.0
+    cum = peak = mdd = 0.0
+    for t in trades:
+        cum += t["pnl"]
+        peak = max(peak, cum)
+        mdd = max(mdd, peak - cum)
+    # live calibration: did the model's probabilities beat the market's on markets that settled?
+    rows = db.query("""SELECT s.p_yes, s.market_price, m.result FROM signals s JOIN markets m ON m.ticker = s.ticker
+                       WHERE s.mode='PAPER' AND s.p_yes IS NOT NULL AND s.market_price IS NOT NULL
+                         AND m.result IN ('yes','no') ORDER BY s.ts_ms DESC LIMIT 20000""")
+    y = [1 if r["result"] == "yes" else 0 for r in rows]
+    mb = sum((r["p_yes"] - yi) ** 2 for r, yi in zip(rows, y)) / len(y) if y else None
+    kb = sum((r["market_price"] - yi) ** 2 for r, yi in zip(rows, y)) / len(y) if y else None
+    R = READINESS
+    criteria = [
+        {"name": f"At least {R['min_trades']} settled paper trades", "ok": n >= R["min_trades"],
+         "progress": min(1.0, n / R["min_trades"]), "value": f"{n}"},
+        {"name": f"At least {R['min_days']} days of paper trading", "ok": days >= R["min_days"],
+         "progress": min(1.0, days / R["min_days"]), "value": f"{days:.1f} days"},
+        {"name": "Profitable after fees", "ok": n > 0 and pnl > 0, "progress": 1.0 if pnl > 0 else 0.0,
+         "value": f"${pnl:+.2f}" if n else "no trades yet"},
+        {"name": f"Profit factor at least {R['min_profit_factor']}", "ok": pf is not None and pf >= R["min_profit_factor"],
+         "progress": 0.0 if pf is None else min(1.0, pf / R["min_profit_factor"]),
+         "value": "—" if pf is None else ("∞" if pf == float("inf") else f"{pf:.2f}")},
+        {"name": "Model beat the market's prices on settled markets", "ok": mb is not None and mb < kb,
+         "progress": 1.0 if (mb is not None and mb < kb) else 0.0,
+         "value": f"model {mb:.4f} vs market {kb:.4f} (lower is better)" if mb is not None else "not measured yet"},
+        {"name": f"Worst drawdown under ${s.risk.max_drawdown:.0f}", "ok": n > 0 and mdd < s.risk.max_drawdown,
+         "progress": 1.0 if n and mdd < s.risk.max_drawdown else 0.0, "value": f"${mdd:.2f}" if n else "—"},
+    ]
+    return {"criteria": criteria, "all_met": all(c["ok"] for c in criteria),
+            "live_locked": True, "note": "Even when every box is green, real-money trading stays locked in code "
+            "until you and Claude review the results and unlock it on purpose, starting with tiny sizes."}
 
 
 def outcome_from_value(strike_type: str | None, floor: float | None, cap: float | None,
