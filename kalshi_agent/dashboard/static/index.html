@@ -204,6 +204,24 @@ button.primary{background:var(--ink);color:var(--bg);border-color:var(--ink);fon
     </div>
   </div>
 
+  <div class="panel" id="updatePanel" style="margin-top:16px">
+    <h2>Automatic updates</h2>
+    <div id="updateState" class="connected"></div>
+    <div class="connect" id="tokenForm" hidden style="margin-top:14px">
+      <ol class="muted">
+        <li>On github.com open <b>Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token</b>.</li>
+        <li>Name it "kalshi agent updates", set <b>Repository access</b> to <b>Only select repositories → kalshi-agent</b>, and under <b>Permissions → Contents</b> pick <b>Read-only</b>.</li>
+        <li>Generate it, copy it, paste it here and press <b>Save token</b>. It stays on this Mac and can only read the code.</li>
+      </ol>
+      <form id="tokForm" autocomplete="off">
+        <label for="ghToken">GitHub token</label>
+        <input id="ghToken" type="password" spellcheck="false" autocapitalize="off" placeholder="github_pat_…">
+        <div style="display:flex;gap:8px;margin-top:10px"><button class="primary" id="tokSave" type="submit">Save token</button><button type="button" id="tokCancel" hidden>Cancel</button></div>
+        <div class="msg" id="tokMsg"></div>
+      </form>
+    </div>
+  </div>
+
   <div class="grid feedrow" style="margin-top:16px">
     <div class="panel"><h2>Live data feeds</h2><div class="feeds" id="feeds"></div><div class="muted" id="clockline" style="font-size:12px;margin-top:10px"></div></div>
     <div class="panel"><h2>Learning data: past markets</h2><div id="quality"><div class="muted">Loading…</div></div></div>
@@ -505,7 +523,41 @@ $("keyForm").onsubmit = async ev => {
   finally { btn.disabled = false; }
 };
 
-refresh(); loadSide(); loadCreds();
+let upState = null, tokEditing = false;
+function renderUpdates() {
+  const u = upState; if (!u) return;
+  const showForm = u.enabled && (!u.has_token || tokEditing);
+  $("tokenForm").hidden = !showForm;
+  $("tokCancel").hidden = !u.has_token;
+  const dot = {current: "ok", installed: "ok", error: "critical", rejected: "warning", offline: "warning", off: ""}[u.state] ?? "warning";
+  const ver = u.installed ? `version <span class="mono">${esc(u.installed.slice(0, 7))}</span>` : "version unknown";
+  const msg = !u.enabled ? "Turned off in settings." : !u.has_token ? "Needs a read-only GitHub token to download updates from your private repo."
+    : u.check_requested ? "Checking for updates…" : (u.message || "Waiting for the first check.");
+  $("updateState").innerHTML = `<span class="dot ${u.has_token ? dot : "warning"}"></span>
+    <span>${ver}. ${esc(msg)}${u.checked_ms ? ` <span class="muted">Checked ${ago(u.checked_ms)}.</span>` : ""}</span>
+    <span class="spacer"></span>
+    ${u.has_token && u.enabled ? `<button id="upCheck" type="button">Check now</button><button id="tokReplace" type="button">Replace token</button>` : ""}`;
+  const c = $("upCheck"); if (c) c.onclick = async () => { await api("/api/updates/check", {method: "POST"}); loadUpdates(); };
+  const r = $("tokReplace"); if (r) r.onclick = () => { tokEditing = true; renderUpdates(); };
+}
+async function loadUpdates() { try { upState = await api("/api/updates"); renderUpdates(); } catch (e) {} }
+$("tokCancel").onclick = () => { tokEditing = false; $("tokMsg").textContent = ""; renderUpdates(); };
+$("tokForm").onsubmit = async ev => {
+  ev.preventDefault();
+  const msg = $("tokMsg"), btn = $("tokSave");
+  btn.disabled = true; msg.className = "msg"; msg.textContent = "Checking the token with GitHub…";
+  try {
+    const r = await api("/api/updates/token", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({token: $("ghToken").value})});
+    if (!r.ok) { msg.className = "msg bad"; msg.textContent = r.error; return; }
+    $("ghToken").value = ""; msg.className = "msg good"; msg.textContent = r.note; tokEditing = false;
+    await loadUpdates();
+  } catch (e) { msg.className = "msg bad"; msg.textContent = "Could not save (" + e.message + ")."; }
+  finally { btn.disabled = false; }
+};
+
+refresh(); loadSide(); loadCreds(); loadUpdates();
+setInterval(loadUpdates, 20000);
 setInterval(loadCreds, 20000);
 setInterval(refresh, 5000);
 setInterval(loadSide, 20000);

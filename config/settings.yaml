@@ -64,6 +64,15 @@ health:
 
 crypto_provider: coinbase       # coinbase | kraken
 
+# Automatic updates: the agent checks this GitHub repo, runs the safety tests on any
+# new version, and installs it only if they pass. Your data, .env and keys are never
+# touched, and an automatic update can never unlock real-money trading.
+updates:
+  enabled: true
+  repo: lelouchsvg/kalshi-agent
+  branch: main
+  check_every_minutes: 30
+
 dashboard:
   host: 127.0.0.1
   port: 8080

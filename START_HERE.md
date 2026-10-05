@@ -40,6 +40,14 @@ including the collected data.
   data; the models will be trained only on what was actually recorded.
 - It uses roughly 150–250 MB of memory. If the Mac feels slow, Stop it and tell Claude.
 
+## Updates install themselves
+Once a read-only GitHub token is saved in the dashboard's **Automatic updates** box, the agent
+checks GitHub every 30 minutes. It runs the safety tests on any new version and installs it
+only if every test passes, keeping your data, `.env` and keys. If a new version won't start,
+the previous one is put back automatically. An automatic update can never unlock real-money
+trading. Those changes always need a manual install. You can still update by hand with
+install_update.sh.
+
 ## Kalshi API key (optional)
 The agent works without one. A key adds Kalshi's real-time stream. To add it, open the
 dashboard, find **Kalshi account**, paste the Key ID and the private key from kalshi.com, and

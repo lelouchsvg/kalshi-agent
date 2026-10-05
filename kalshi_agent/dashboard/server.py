@@ -16,7 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
 
-from .. import credentials, state
+from .. import credentials, state, updater
 from ..config import ROOT, Settings, load_settings
 from ..db import Database, open_db
 from ..safety import engage_kill, release_kill
@@ -48,6 +48,7 @@ class DashboardApp:
             "/api/model": lambda u: state.model_info(self.db, self.s),
             "/api/health": lambda u: state.status(self.db, self.s)["health"] or {"overall": "unknown", "checks": []},
             "/api/credentials": lambda u: credentials.status(self.root),
+            "/api/updates": self.update_status,
         }
 
     def authenticate(self, auth_header: str | None) -> str:
@@ -111,9 +112,37 @@ class DashboardApp:
                           f"Kalshi API key {info['key_id_hint']} saved ({info['key_type']}). {note}")
         return {"ok": True, "verified": verified, "note": note, **info}
 
+    def update_status(self, user: str) -> dict[str, Any]:
+        return {**updater.status(self.db), "enabled": self.s.auto_update, "repo": self.s.update_repo,
+                "installed": updater.installed_revision(self.root),
+                "has_token": bool(updater.read_token(self.root)),
+                "check_requested": (self.root / "data" / "update_now").exists()}
+
+    def save_github_token(self, user: str, body: bytes) -> dict[str, Any]:
+        try:
+            data = json.loads(body or b"{}")
+        except ValueError:
+            raise HTTPError(400, "Bad request") from None
+        try:
+            updater.save_token(self.root, str(data.get("token", "")), self.s.update_repo)
+        except credentials.CredentialError as exc:
+            return {"ok": False, "error": str(exc)}
+        self.request_update_check()
+        self.db.log_event("dashboard", "info", f"GitHub token saved by {user}; checking for updates")
+        return {"ok": True, "note": "GitHub accepted the token. Checking for updates within a minute."}
+
+    def request_update_check(self) -> None:
+        (self.root / "data").mkdir(exist_ok=True)
+        (self.root / "data" / "update_now").touch()
+
     def post(self, path: str, user: str, body: bytes = b"") -> dict[str, Any]:
         if path == "/api/credentials":
             return self.save_credentials(user, body)
+        if path == "/api/updates/token":
+            return self.save_github_token(user, body)
+        if path == "/api/updates/check":
+            self.request_update_check()
+            return {"ok": True}
         if path == "/api/kill":
             engage_kill(self.db, f"dashboard:{user}", "kill button pressed")
             return {"ok": True}

@@ -22,12 +22,13 @@ fail() {
   printf '\n\033[1;31m%s\033[0m\n' "$*"
   echo "---- last lines of logs/setup.log (send a screenshot of this to Claude) ----"
   tail -15 logs/setup.log 2>/dev/null
-  read -r -p "Press Enter to close. " _; exit 1
+  [ -n "${AGENT_QUIET:-}" ] || read -r -p "Press Enter to close. " _
+  exit 1
 }
 
 if [ -f data/agent.pids ] && kill -0 $(head -1 data/agent.pids) 2>/dev/null; then
   say "The agent is already running. Opening the dashboard."
-  open "http://127.0.0.1:8080"
+  [ -n "${AGENT_QUIET:-}" ] || open "http://127.0.0.1:8080"
   exit 0
 fi
 
@@ -80,13 +81,15 @@ DASHBOARD=$!
 # Keep the Mac from idle-sleeping while the agent runs (the lid must stay open).
 nohup caffeinate -i -w "$COLLECTOR" >/dev/null 2>&1 &
 CAFFEINATE=$!
-printf '%s\n%s\n%s\n' "$COLLECTOR" "$DASHBOARD" "$CAFFEINATE" > data/agent.pids
+nohup /bin/bash ./update_loop.sh >/dev/null 2>&1 &
+UPDATER=$!
+printf '%s\n%s\n%s\n%s\n' "$COLLECTOR" "$DASHBOARD" "$CAFFEINATE" "$UPDATER" > data/agent.pids
 
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   curl -s -o /dev/null http://127.0.0.1:8080/ && break
   sleep 1
 done
-open "http://127.0.0.1:8080"
+[ -n "${AGENT_QUIET:-}" ] || open "http://127.0.0.1:8080"
 
 say "Kalshi agent is running in PAPER mode."
 echo "Dashboard: http://127.0.0.1:8080  (only reachable from this Mac)"

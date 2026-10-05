@@ -76,6 +76,10 @@ class Settings:
     dashboard_host: str = "127.0.0.1"
     dashboard_port: int = 8080
     costs: list[dict[str, Any]] = field(default_factory=list)
+    auto_update: bool = True
+    update_repo: str = "lelouchsvg/kalshi-agent"
+    update_branch: str = "main"
+    update_interval_min: int = 30
     db_path: Path = ROOT / "data" / "kalshi_agent.db"
     log_dir: Path = ROOT / "logs"
     kill_file: Path = ROOT / "data" / "KILL"
@@ -170,6 +174,11 @@ def load_settings(config_path: Path | None = None, env: dict[str, str] | None = 
     s.dashboard_host = str(d.get("host", s.dashboard_host))
     s.dashboard_port = int(d.get("port", s.dashboard_port))
     s.costs = list(raw.get("costs") or [])
+    up = raw.get("updates") or {}
+    s.auto_update = bool(up.get("enabled", s.auto_update))
+    s.update_repo = str(up.get("repo", s.update_repo))
+    s.update_branch = str(up.get("branch", s.update_branch))
+    s.update_interval_min = max(5, int(up.get("check_every_minutes", s.update_interval_min)))
     if env.get("KALSHI_AGENT_DB"):
         s.db_path = Path(env["KALSHI_AGENT_DB"])
 
