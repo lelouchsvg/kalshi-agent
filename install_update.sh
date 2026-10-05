@@ -27,7 +27,21 @@ if [ "$SRC" = "$(cd "$TARGET" 2>/dev/null && pwd)" ]; then
   bash "$TARGET/stop.sh" >/dev/null 2>&1 || true
   exec bash "$TARGET/start.sh"
 fi
-[ -f "$TARGET/start.sh" ] || fail "Couldn't find your agent at $TARGET. Run this again with the old folder dragged in after it: bash install_update.sh <old kalshi-agent folder>"
+if [ ! -f "$TARGET/start.sh" ]; then
+  if [ -n "${1:-}" ]; then
+    fail "Couldn't find your agent at $TARGET. Drag in the old kalshi-agent folder (the one with a data folder inside)."
+  fi
+  # No existing install anywhere: make this copy the agent, in the home folder.
+  TARGET="$HOME/kalshi-agent"
+  if [ -e "$TARGET" ]; then
+    fail "$TARGET exists but isn't a working agent. Rename or remove it, then run this again."
+  fi
+  say "No existing agent found. Installing a fresh copy at $TARGET..."
+  pkill -f run_forever.sh 2>/dev/null || true
+  pkill -f "kalshi_agent" 2>/dev/null || true
+  cp -Rp "$SRC" "$TARGET" || fail "Copying failed."
+  exec bash "$TARGET/start.sh"
+fi
 
 say "Stopping the running agent..."
 bash "$TARGET/stop.sh" >/dev/null 2>&1 || true
